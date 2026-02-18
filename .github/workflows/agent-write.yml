@@ -175,9 +175,11 @@ jobs:
         id: plan_cost
         run: |
           if [ -f /home/runner/work/_temp/claude-execution-output.json ]; then
-            COST=$(jq -r '.total_cost_usd // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
-            TURNS=$(jq -r '.num_turns // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
-            DURATION=$(jq -r '.duration_ms // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
+            # File is NDJSON — cost data is in the last line (result object)
+            LAST_LINE=$(tail -1 /home/runner/work/_temp/claude-execution-output.json)
+            COST=$(echo "$LAST_LINE" | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
+            TURNS=$(echo "$LAST_LINE" | jq -r '.num_turns // 0' 2>/dev/null || echo "0")
+            DURATION=$(echo "$LAST_LINE" | jq -r '.duration_ms // 0' 2>/dev/null || echo "0")
           else
             COST="0"; TURNS="0"; DURATION="0"
           fi
@@ -238,9 +240,11 @@ jobs:
         id: write_cost
         run: |
           if [ -f /home/runner/work/_temp/claude-execution-output.json ]; then
-            COST=$(jq -r '.total_cost_usd // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
-            TURNS=$(jq -r '.num_turns // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
-            DURATION=$(jq -r '.duration_ms // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
+            # File is NDJSON — cost data is in the last line (result object)
+            LAST_LINE=$(tail -1 /home/runner/work/_temp/claude-execution-output.json)
+            COST=$(echo "$LAST_LINE" | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
+            TURNS=$(echo "$LAST_LINE" | jq -r '.num_turns // 0' 2>/dev/null || echo "0")
+            DURATION=$(echo "$LAST_LINE" | jq -r '.duration_ms // 0' 2>/dev/null || echo "0")
           else
             COST="0"; TURNS="0"; DURATION="0"
           fi
