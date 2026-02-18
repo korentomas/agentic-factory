@@ -32,6 +32,7 @@ from apps.orchestrator.jobs.pattern_extraction import (
     extract_patterns,
     format_rules_markdown,
     load_outcomes,
+    main,
     run_extraction,
 )
 
@@ -1029,3 +1030,62 @@ class TestGetEnv:
     def test_returns_empty_string_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("NONEXISTENT_PE_KEY_12345", raising=False)
         assert _get_env("NONEXISTENT_PE_KEY_12345") == ""
+
+
+# ── 10. TestMain ──────────────────────────────────────────────────────────────
+
+
+class TestMain:
+    """main() calls run_extraction() and exits with the returned code."""
+
+    def test_main_exits_zero_on_success(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """main() calls run_extraction() and exits 0 when it returns 0."""
+        monkeypatch.setenv("OUTCOMES_PATH", str(tmp_path / "nonexistent.jsonl"))
+        monkeypatch.setenv("RULES_DIR", str(tmp_path / ".claude" / "rules"))
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 0
+
+    def test_main_exits_one_on_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """main() exits 1 when run_extraction() returns 1."""
+
+        async def _failing_extraction() -> int:
+            return 1
+
+        monkeypatch.setattr(
+            "apps.orchestrator.jobs.pattern_extraction.run_extraction",
+            _failing_extraction,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+
+    def test_main_calls_run_extraction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """main() invokes run_extraction() exactly once."""
+
+        call_count = 0
+
+        async def _counting_extraction() -> int:
+            nonlocal call_count
+            call_count += 1
+            return 0
+
+        monkeypatch.setattr(
+            "apps.orchestrator.jobs.pattern_extraction.run_extraction",
+            _counting_extraction,
+        )
+
+        with pytest.raises(SystemExit):
+            main()
+
+        assert call_count == 1
