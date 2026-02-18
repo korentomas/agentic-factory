@@ -115,19 +115,38 @@ jobs:
           CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
         run: |
           PR_URL="${{ github.event.pull_request.html_url }}"
-          curl --retry 3 \
-            -X POST "${ORCHESTRATOR_URL}/callbacks/blocked" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
-            -d "{
-              \"pr_url\": \"${PR_URL}\",
-              \"pr_number\": ${{ needs.check-trigger.outputs.pr_number }},
-              \"branch\": \"${{ github.event.pull_request.head.ref }}\",
-              \"reason\": \"max-remediation-rounds\",
-              \"run_id\": \"${{ github.run_id }}\",
-              \"escalation\": true
-            }" \
-            --fail-with-body || echo "::warning::Escalation callback failed"
+          if [ -n "$ORCHESTRATOR_URL" ]; then
+            curl --retry 3 \
+              -X POST "${ORCHESTRATOR_URL}/callbacks/blocked" \
+              -H "Content-Type: application/json" \
+              -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
+              -d "{
+                \"pr_url\": \"${PR_URL}\",
+                \"pr_number\": ${{ needs.check-trigger.outputs.pr_number }},
+                \"branch\": \"${{ github.event.pull_request.head.ref }}\",
+                \"reason\": \"max-remediation-rounds\",
+                \"run_id\": \"${{ github.run_id }}\",
+                \"escalation\": true
+              }" \
+              --fail-with-body || echo "::warning::Escalation callback failed"
+          else
+            echo "No ORCHESTRATOR_URL configured — skipping callback"
+          fi
+
+      - name: Notify Slack — escalation
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -X POST "$SLACK_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\": \"🛑 *PR needs human review* — auto-remediation limit reached\\n<${PR_URL}|${PR_TITLE}>\\n2 rounds of auto-fix couldn't resolve all BLOCKING issues.\"}" \
+              || echo "::warning::Slack notification failed"
+          else
+            echo "No SLACK_WEBHOOK_URL configured — skipping Slack notification"
+          fi
 
   # ── Auto-remediation ─────────────────────────────────────────────────────────
   remediate:
@@ -264,6 +283,8 @@ jobs:
             3. Only stop when all BLOCKING issues are resolved AND tests pass
 
             Read CLAUDE.md to understand the patterns you must follow.
+            If .claude/rules/patterns.md exists, read it for learned patterns.
+            If .claude/rules/anti-patterns.md exists, read it for known pitfalls.
             The fixes must conform to the same standards as the original code.
 
             Environment:
