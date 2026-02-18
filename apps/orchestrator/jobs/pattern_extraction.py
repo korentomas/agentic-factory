@@ -23,6 +23,8 @@ Architecture:
 
 Usage:
   python -m apps.orchestrator.jobs.pattern_extraction
+  agentfactory-extract                          # after pip install -e .
+  python scripts/extract_patterns.py            # convenience wrapper
   # Or via Cloud Run Job (set OUTCOMES_PATH env var for custom JSONL location)
 """
 
