@@ -8,6 +8,11 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
 
+# One review per PR at a time. If the PR is updated mid-review, cancel and re-review.
+concurrency:
+  group: agent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   # ── Gate: only run on agent/* branches ──────────────────────────────────────
   check-branch:

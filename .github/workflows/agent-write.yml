@@ -8,6 +8,12 @@ on:
   repository_dispatch:
     types: [agent-task]
 
+# Only one agent-write per task at a time. If duplicate dispatches arrive,
+# cancel the earlier one and use the latest (which has the most context).
+concurrency:
+  group: agent-write-${{ github.event.client_payload.clickup_task_id }}
+  cancel-in-progress: true
+
 jobs:
   write:
     name: "Agent: Write Code"
