@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
@@ -123,11 +124,19 @@ async def log_requests(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
-    """Log every request with method, path, status, and duration."""
+    """Log every request with method, path, status, duration, and request ID.
+
+    Propagates the client-supplied ``X-Request-ID`` header when present;
+    otherwise generates a fresh UUID4. The request ID is bound to the
+    structlog context so all logs within the request carry ``request_id``.
+    """
     start = time.monotonic()
+
+    request_id: str = request.headers.get("X-Request-ID") or str(uuid.uuid4())
 
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(
+        request_id=request_id,
         method=request.method,
         path=request.url.path,
         client=request.client.host if request.client else "unknown",
@@ -137,6 +146,8 @@ async def log_requests(
 
     duration_ms = round((time.monotonic() - start) * 1000, 2)
     logger.info("http_request", status=response.status_code, duration_ms=duration_ms)
+
+    response.headers["X-Request-ID"] = request_id
     return response
 
 

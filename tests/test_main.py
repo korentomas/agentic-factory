@@ -2,12 +2,14 @@
 Tests for apps.orchestrator.main — FastAPI application entry point.
 
 Covers: health endpoint, 404 handler, request logging middleware,
-docs endpoint configuration, and structured logging setup.
+request ID middleware, docs endpoint configuration, and structured
+logging setup.
 """
 
 from __future__ import annotations
 
 import importlib
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -74,6 +76,80 @@ def test_middleware_clears_contextvars_before_binding(client: TestClient) -> Non
         client.get("/health")
 
     assert clear_called, "clear_contextvars should be called before binding new context"
+
+
+# ── Request ID middleware ─────────────────────────────────────────────────────
+
+
+def test_health_response_includes_x_request_id_header(client: TestClient) -> None:
+    """GET /health response includes an X-Request-ID header."""
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert "x-request-id" in response.headers
+
+
+def test_generated_request_id_is_valid_uuid4(client: TestClient) -> None:
+    """When no X-Request-ID is sent, the middleware generates a valid UUID4."""
+    response = client.get("/health")
+
+    request_id = response.headers["x-request-id"]
+    parsed = uuid.UUID(request_id)
+    assert parsed.version == 4
+
+
+def test_client_provided_request_id_is_preserved(client: TestClient) -> None:
+    """When the client sends X-Request-ID, the same value is echoed in the response."""
+    custom_id = "my-trace-abc123"
+    response = client.get("/health", headers={"X-Request-ID": custom_id})
+
+    assert response.headers["x-request-id"] == custom_id
+
+
+def test_different_requests_get_different_request_ids(client: TestClient) -> None:
+    """Each request without a client-supplied ID receives a unique request ID."""
+    r1 = client.get("/health")
+    r2 = client.get("/health")
+
+    assert r1.headers["x-request-id"] != r2.headers["x-request-id"]
+
+
+def test_middleware_binds_request_id_to_structlog_context(client: TestClient) -> None:
+    """The middleware binds request_id to the structlog contextvars."""
+    captured: dict[str, object] = {}
+
+    original_bind = structlog.contextvars.bind_contextvars
+
+    def spy_bind(**kwargs: object) -> None:
+        captured.update(kwargs)
+        original_bind(**kwargs)
+
+    with patch.object(structlog.contextvars, "bind_contextvars", side_effect=spy_bind):
+        client.get("/health")
+
+    assert "request_id" in captured
+    # The bound value must be a valid UUID4 string.
+    parsed = uuid.UUID(str(captured["request_id"]))
+    assert parsed.version == 4
+
+
+def test_middleware_binds_client_request_id_to_structlog_context(
+    client: TestClient,
+) -> None:
+    """When the client provides X-Request-ID, that value is bound to structlog context."""
+    captured: dict[str, object] = {}
+    custom_id = "client-trace-xyz"
+
+    original_bind = structlog.contextvars.bind_contextvars
+
+    def spy_bind(**kwargs: object) -> None:
+        captured.update(kwargs)
+        original_bind(**kwargs)
+
+    with patch.object(structlog.contextvars, "bind_contextvars", side_effect=spy_bind):
+        client.get("/health", headers={"X-Request-ID": custom_id})
+
+    assert captured["request_id"] == custom_id
 
 
 # ── Docs endpoint configuration ──────────────────────────────────────────────
