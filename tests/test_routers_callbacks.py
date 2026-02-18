@@ -11,7 +11,7 @@ Covers:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -564,7 +564,7 @@ class TestPostSlack:
         mock_response = AsyncMock()
         mock_response.status_code = 500
         mock_response.text = "server error"
-        mock_response.raise_for_status = AsyncMock(
+        mock_response.raise_for_status = MagicMock(
             side_effect=httpx.HTTPStatusError(
                 "Server Error",
                 request=httpx.Request("POST", "https://hooks.slack.com/test"),
@@ -635,7 +635,7 @@ class TestPostClickUpComment:
         mock_response = AsyncMock()
         mock_response.status_code = 403
         mock_response.text = "forbidden"
-        mock_response.raise_for_status = AsyncMock(
+        mock_response.raise_for_status = MagicMock(
             side_effect=httpx.HTTPStatusError(
                 "Forbidden",
                 request=httpx.Request(

@@ -10,7 +10,7 @@ Provides:
 from __future__ import annotations
 
 from collections.abc import Generator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -51,7 +51,7 @@ def mock_httpx_post() -> Generator[AsyncMock, None, None]:
     mock_response.status_code = 200
     mock_response.json.return_value = {"ok": True}
     mock_response.text = "ok"
-    mock_response.raise_for_status = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
 
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(return_value=mock_response)
