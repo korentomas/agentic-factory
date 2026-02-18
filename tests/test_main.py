@@ -59,6 +59,64 @@ def test_middleware_binds_structlog_contextvars(client: TestClient) -> None:
     assert "client" in captured
 
 
+def test_middleware_binds_request_id_to_context(client: TestClient) -> None:
+    """The middleware always binds a request_id to the structlog context."""
+    captured: dict[str, object] = {}
+
+    original_bind = structlog.contextvars.bind_contextvars
+
+    def spy_bind(**kwargs: object) -> None:
+        captured.update(kwargs)
+        original_bind(**kwargs)
+
+    with patch.object(structlog.contextvars, "bind_contextvars", side_effect=spy_bind):
+        client.get("/health")
+
+    assert "request_id" in captured
+    # Generated UUID is a non-empty string
+    assert isinstance(captured["request_id"], str)
+    assert captured["request_id"] != ""
+
+
+def test_middleware_uses_x_correlation_id_header_as_request_id(client: TestClient) -> None:
+    """When X-Correlation-ID is provided, it is used as the request_id."""
+    captured: dict[str, object] = {}
+
+    original_bind = structlog.contextvars.bind_contextvars
+
+    def spy_bind(**kwargs: object) -> None:
+        captured.update(kwargs)
+        original_bind(**kwargs)
+
+    correlation_id = "my-upstream-trace-id-abc"
+    with patch.object(structlog.contextvars, "bind_contextvars", side_effect=spy_bind):
+        client.get("/health", headers={"X-Correlation-ID": correlation_id})
+
+    assert captured["request_id"] == correlation_id
+
+
+def test_middleware_generates_uuid_when_no_correlation_id_header(client: TestClient) -> None:
+    """When X-Correlation-ID is absent, a UUID is auto-generated for request_id."""
+    import re
+
+    captured: dict[str, object] = {}
+
+    original_bind = structlog.contextvars.bind_contextvars
+
+    def spy_bind(**kwargs: object) -> None:
+        captured.update(kwargs)
+        original_bind(**kwargs)
+
+    with patch.object(structlog.contextvars, "bind_contextvars", side_effect=spy_bind):
+        client.get("/health")
+
+    # Should be a valid UUID v4 format
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    )
+    assert uuid_pattern.match(str(captured["request_id"]))
+
+
 def test_middleware_clears_contextvars_before_binding(client: TestClient) -> None:
     """The middleware clears contextvars at the start of each request to avoid leaking."""
     clear_called = False

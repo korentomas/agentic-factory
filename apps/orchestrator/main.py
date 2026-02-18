@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
@@ -126,8 +127,12 @@ async def log_requests(
     """Log every request with method, path, status, and duration."""
     start = time.monotonic()
 
+    # Respect an upstream correlation ID if provided; otherwise generate one.
+    request_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(
+        request_id=request_id,
         method=request.method,
         path=request.url.path,
         client=request.client.host if request.client else "unknown",

@@ -282,14 +282,14 @@ async def _post_slack(text: str) -> None:
             resp.raise_for_status()
             logger.debug("slack_sent", channel=slack_channel)
     except httpx.HTTPStatusError as exc:
-        logger.error(
+        logger.warning(
             "slack_post_failed",
             status_code=exc.response.status_code,
             response_body=exc.response.text[:200],
             error=str(exc),
         )
     except httpx.RequestError as exc:
-        logger.error("slack_request_error", error=str(exc))
+        logger.warning("slack_request_error", error=str(exc))
 
 
 async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
@@ -319,7 +319,7 @@ async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
             resp.raise_for_status()
             logger.debug("clickup_comment_posted", task_id=task_id)
     except httpx.HTTPStatusError as exc:
-        logger.error(
+        logger.warning(
             "clickup_comment_failed",
             task_id=task_id,
             status_code=exc.response.status_code,
@@ -327,7 +327,7 @@ async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
             error=str(exc),
         )
     except httpx.RequestError as exc:
-        logger.error("clickup_request_error", task_id=task_id, error=str(exc))
+        logger.warning("clickup_request_error", task_id=task_id, error=str(exc))
 
 
 def _extract_task_id_from_branch(branch: str) -> str:
