@@ -263,7 +263,7 @@ async def _call_agent(prompt: str) -> str:
     Returns the summary text. Raises RuntimeError on failure.
     """
     try:
-        from claude_agent_sdk import ClaudeAgentOptions, query  # type: ignore[import]
+        from claude_agent_sdk import ClaudeAgentOptions, query
     except ImportError as exc:
         raise RuntimeError(
             "claude-agent-sdk not installed. Run: pip install claude-agent-sdk"
