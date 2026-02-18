@@ -20,6 +20,7 @@ import structlog
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
 
+from apps import __version__
 from apps.orchestrator.routers import callbacks, clickup
 
 
@@ -163,7 +164,7 @@ async def health() -> dict[str, str]:
     Liveness probe for Cloud Run and load balancers.
     Returns 200 with no dependency checks — always fast.
     """
-    return {"status": "ok", "service": "agent-factory-orchestrator"}
+    return {"status": "ok", "service": "agent-factory-orchestrator", "version": __version__}
 
 
 # ── Error handlers ─────────────────────────────────────────────────────────────
