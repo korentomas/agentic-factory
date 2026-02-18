@@ -18,22 +18,22 @@ jobs:
     steps:
       - name: Validate issue
         id: validate
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          TITLE="${{ github.event.issue.title }}"
-          BODY="${{ github.event.issue.body }}"
-          ISSUE_NUMBER="${{ github.event.issue.number }}"
-
-          if [ -z "$TITLE" ]; then
+          if [ -z "$ISSUE_TITLE" ]; then
             echo "::error::Issue has no title"
             exit 1
           fi
 
           # Use issue number as task ID for branch naming
           echo "task_id=gh-${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
+          echo "title=${ISSUE_TITLE}" >> "$GITHUB_OUTPUT"
 
           # Determine complexity from body length
-          BODY_LENGTH=${#BODY}
+          BODY_LENGTH=${#ISSUE_BODY}
           if [ "$BODY_LENGTH" -gt 500 ]; then
             echo "complexity=high" >> "$GITHUB_OUTPUT"
           else
@@ -42,8 +42,11 @@ jobs:
 
       - name: Determine risk tier
         id: risk
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          COMBINED="${{ github.event.issue.title }} ${{ github.event.issue.body }}"
+          COMBINED="${ISSUE_TITLE} ${ISSUE_BODY}"
           COMBINED_LOWER=$(echo "$COMBINED" | tr '[:upper:]' '[:lower:]')
 
           if echo "$COMBINED_LOWER" | grep -qE "auth|tenant|security|migration|schema|admin|password|token|credential|secret"; then
@@ -57,6 +60,8 @@ jobs:
       - name: Dispatch to agent-write
         env:
           GH_TOKEN: ${{ secrets.APP_TOKEN }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           # Generate correlation ID
           CORRELATION_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
@@ -66,26 +71,27 @@ jobs:
             -f event_type=agent-task \
             -f "client_payload[clickup_task_id]=${{ steps.validate.outputs.task_id }}" \
             -f "client_payload[title]=${{ steps.validate.outputs.title }}" \
-            -f "client_payload[description]=${{ github.event.issue.body }}" \
+            -f "client_payload[description]=${ISSUE_BODY}" \
             -f "client_payload[correlation_id]=${CORRELATION_ID}" \
             -f "client_payload[risk_tier]=${{ steps.risk.outputs.risk_tier }}" \
             -f "client_payload[complexity]=${{ steps.validate.outputs.complexity }}" \
-            -f "client_payload[branch]=agent/gh-${{ github.event.issue.number }}" \
+            -f "client_payload[branch]=agent/gh-${ISSUE_NUMBER}" \
             -f "client_payload[source]=github-issue" \
-            -f "client_payload[issue_number]=${{ github.event.issue.number }}"
+            -f "client_payload[issue_number]=${ISSUE_NUMBER}"
 
-          echo "Dispatched issue #${{ github.event.issue.number }} to agent-write"
+          echo "Dispatched issue #${ISSUE_NUMBER} to agent-write"
 
       - name: Acknowledge on issue
         env:
           GH_TOKEN: ${{ secrets.APP_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment "${{ github.event.issue.number }}" \
+          gh issue comment "${ISSUE_NUMBER}" \
             --repo "${{ github.repository }}" \
             --body "🤖 **AgentFactory** picked this up. Working on it now.
 
           - Risk tier: \`${{ steps.risk.outputs.risk_tier }}\`
           - Complexity: \`${{ steps.validate.outputs.complexity }}\`
-          - Branch: \`agent/gh-${{ github.event.issue.number }}\`
+          - Branch: \`agent/gh-${ISSUE_NUMBER}\`
 
           I'll open a draft PR when the code is ready."
