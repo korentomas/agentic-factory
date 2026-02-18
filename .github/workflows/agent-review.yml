@@ -216,7 +216,7 @@ jobs:
             Risk tier for this PR: ${{ needs.risk-gate.outputs.tier }}
 
             If the risk tier is HIGH, be thorough. If LOW (docs only), be brief.
-          claude_args: "--max-turns 15 --model claude-opus-4-6 --allowedTools 'Read,Glob,Grep'"
+          claude_args: "--max-turns 15 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Glob,Grep'"
 
   # ── Step 4: Spec coverage audit ──────────────────────────────────────────────
   # Critical: separate from correctness review.
@@ -293,7 +293,7 @@ jobs:
 
             Do not read implementation files. If you find yourself reading a
             non-test file, stop and only look at test files.
-          claude_args: "--max-turns 8 --model claude-opus-4-6 --allowedTools 'Bash,Glob,Grep,Read'"
+          claude_args: "--max-turns 8 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Bash,Glob,Grep,Read'"
 
   # ── Step 5: Callback to orchestrator ─────────────────────────────────────────
   notify-orchestrator:
