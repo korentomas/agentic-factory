@@ -20,7 +20,7 @@ Issues detected:
 
 Usage:
   python -m apps.orchestrator.jobs.codebase_scan
-  # Or via Cloud Run Job (set REPO_PATH to the checked-out target repo)
+  # Or via Cloud Run Job (set _get_env("REPO_PATH", ".") to the checked-out target repo)
 """
 
 from __future__ import annotations
@@ -39,10 +39,9 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLICKUP_API_TOKEN = os.getenv("CLICKUP_API_TOKEN", "")
-CLICKUP_BACKLOG_LIST_ID = os.getenv("CLICKUP_BACKLOG_LIST_ID", "")
-REPO_PATH = os.getenv("REPO_PATH", ".")
+def _get_env(key: str, default: str = "") -> str:
+    """Read env var at call time, not import time."""
+    return os.getenv(key, default)
 
 # Priority mapping: ClickUp uses 1=urgent, 2=high, 3=normal, 4=low
 _CLICKUP_PRIORITY: dict[str, int] = {
@@ -88,8 +87,11 @@ class Finding:
 
         category = parts[0].lower().replace(" ", "-")
         raw_severity = parts[1].lower().strip()
-        severity: Literal["high", "medium", "low"] = (
-            raw_severity if raw_severity in ("high", "medium", "low") else "medium"  # type: ignore[assignment]
+        _valid_severities: dict[str, Literal["high", "medium", "low"]] = {
+            "high": "high", "medium": "medium", "low": "low",
+        }
+        severity: Literal["high", "medium", "low"] = _valid_severities.get(
+            raw_severity, "medium"
         )
         location = parts[2]
         description = " | ".join(parts[3:])  # rejoin in case description had pipes
@@ -122,9 +124,12 @@ class Finding:
 # ── Scanner agent prompt ───────────────────────────────────────────────────────
 # The agent scans and ONLY emits FINDING: lines — it does not make API calls.
 # Credentials are not in the prompt.
-_SCAN_PROMPT = f"""
+def _build_scan_prompt() -> str:
+    """Build the scanner prompt with current env var values."""
+    repo_path = _get_env("REPO_PATH", ".")
+    return f"""
 You are performing a weekly automated codebase audit of a Python/FastAPI codebase.
-Your working directory is: {REPO_PATH}
+Your working directory is: {repo_path}
 
 Find real bugs, security gaps, and maintenance problems. Not style preferences.
 
@@ -167,7 +172,7 @@ How to scan:
 Large files degrade agent performance. Find them.
 
 How to scan:
-  find {REPO_PATH} -name "*.py" -not -path "*/.git/*" -not -path "*/migrations/*" \\
+  find {repo_path} -name "*.py" -not -path "*/.git/*" -not -path "*/migrations/*" \\
     | xargs wc -l 2>/dev/null | sort -rn | awk '$1 > 300 && $2 != "total"' | head -10
 
 ### 6. Deprecated Patterns
@@ -211,7 +216,7 @@ async def _run_agent() -> list[Finding]:
     raw_output_lines: list[str] = []
 
     async for message in query(
-        prompt=_SCAN_PROMPT,
+        prompt=_build_scan_prompt(),
         options=ClaudeAgentOptions(
             allowed_tools=["Read", "Glob", "Grep", "Bash"],
             max_turns=50,
@@ -253,19 +258,19 @@ async def _create_clickup_ticket(finding: Finding, client: httpx.AsyncClient) ->
     Create a ClickUp task for a finding in the backlog list.
     Returns True if created successfully, False on error.
     """
-    if not CLICKUP_BACKLOG_LIST_ID or not CLICKUP_API_TOKEN:
+    if not _get_env("CLICKUP_BACKLOG_LIST_ID") or not _get_env("CLICKUP_API_TOKEN"):
         logger.debug(
             "clickup_ticket_skipped",
-            reason="CLICKUP_BACKLOG_LIST_ID or CLICKUP_API_TOKEN not configured",
+            reason="_get_env("CLICKUP_BACKLOG_LIST_ID") or _get_env("CLICKUP_API_TOKEN") not configured",
             finding=finding.category,
         )
         return False
 
     try:
         resp = await client.post(
-            f"https://api.clickup.com/api/v2/list/{CLICKUP_BACKLOG_LIST_ID}/task",
+            f"https://api.clickup.com/api/v2/list/{_get_env("CLICKUP_BACKLOG_LIST_ID")}/task",
             headers={
-                "Authorization": CLICKUP_API_TOKEN,
+                "Authorization": _get_env("CLICKUP_API_TOKEN"),
                 "Content-Type": "application/json",
             },
             json={
@@ -305,13 +310,13 @@ async def _fetch_existing_scan_tickets(client: httpx.AsyncClient) -> set[str]:
     Fetch existing open tickets tagged 'auto-scan' to avoid duplicates.
     Returns a set of title strings (lowercased) for fuzzy deduplication.
     """
-    if not CLICKUP_BACKLOG_LIST_ID or not CLICKUP_API_TOKEN:
+    if not _get_env("CLICKUP_BACKLOG_LIST_ID") or not _get_env("CLICKUP_API_TOKEN"):
         return set()
 
     try:
         resp = await client.get(
-            f"https://api.clickup.com/api/v2/list/{CLICKUP_BACKLOG_LIST_ID}/task",
-            headers={"Authorization": CLICKUP_API_TOKEN},
+            f"https://api.clickup.com/api/v2/list/{_get_env("CLICKUP_BACKLOG_LIST_ID")}/task",
+            headers={"Authorization": _get_env("CLICKUP_API_TOKEN")},
             params={"tags[]": "auto-scan", "statuses[]": "open", "page": 0},
         )
         resp.raise_for_status()
@@ -337,10 +342,10 @@ async def run_scan() -> int:
     Run the weekly codebase scan.
     Returns exit code: 0 = success (even if findings exist), 1 = hard error.
     """
-    log = logger.bind(job="codebase_scan", repo_path=REPO_PATH)
+    log = logger.bind(job="codebase_scan", repo_path=_get_env("REPO_PATH", "."))
 
-    if not ANTHROPIC_API_KEY:
-        log.error("ANTHROPIC_API_KEY not set")
+    if not _get_env("ANTHROPIC_API_KEY"):
+        log.error("_get_env("ANTHROPIC_API_KEY") not set")
         return 1
 
     log.info("codebase_scan_starting")

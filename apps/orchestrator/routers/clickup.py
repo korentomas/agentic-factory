@@ -104,7 +104,7 @@ async def clickup_webhook(
     # ── Parse payload ──────────────────────────────────────────────────────────
     try:
         payload: dict[str, Any] = await request.json()
-    except Exception as exc:
+    except (ValueError, UnicodeDecodeError) as exc:
         logger.error("clickup_webhook_parse_error", error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

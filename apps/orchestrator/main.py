@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Awaitable
 from contextlib import asynccontextmanager
 
 import structlog
@@ -22,27 +22,31 @@ from fastapi.responses import JSONResponse
 from apps.orchestrator.routers import callbacks, clickup
 
 # ── Structured logging ─────────────────────────────────────────────────────────
-_LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
-_LOG_PRETTY = os.getenv("LOG_PRETTY", "false").lower() == "true"
+def _configure_logging() -> None:
+    """Configure structlog. Reads env vars at call time, not import time."""
+    log_level = os.getenv("LOG_LEVEL", "info").upper()
+    log_pretty = os.getenv("LOG_PRETTY", "false").lower() == "true"
 
-structlog.configure(
-    processors=[
-        structlog.contextvars.merge_contextvars,
-        structlog.processors.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
-        (
-            structlog.dev.ConsoleRenderer()
-            if _LOG_PRETTY
-            else structlog.processors.JSONRenderer()
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            (
+                structlog.dev.ConsoleRenderer()
+                if log_pretty
+                else structlog.processors.JSONRenderer()
+            ),
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(
+            getattr(logging, log_level, logging.INFO)
         ),
-    ],
-    wrapper_class=structlog.make_filtering_bound_logger(
-        getattr(logging, _LOG_LEVEL, logging.INFO)
-    ),
-    context_class=dict,
-    logger_factory=structlog.PrintLoggerFactory(),
-)
+        context_class=dict,
+        logger_factory=structlog.PrintLoggerFactory(),
+    )
 
+
+_configure_logging()
 logger = structlog.get_logger(__name__)
 
 
@@ -85,7 +89,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "orchestrator_starting",
         github_repo=os.getenv("GITHUB_REPO", "(not set)"),
         environment=os.getenv("ENVIRONMENT", "production"),
-        log_level=_LOG_LEVEL,
+        log_level=os.getenv("LOG_LEVEL", "info").upper(),
     )
 
     yield
@@ -114,7 +118,10 @@ app = FastAPI(
 
 # ── Request logging middleware ─────────────────────────────────────────────────
 @app.middleware("http")
-async def log_requests(request: Request, call_next: object) -> Response:
+async def log_requests(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     """Log every request with method, path, status, and duration."""
     start = time.monotonic()
 
@@ -125,7 +132,6 @@ async def log_requests(request: Request, call_next: object) -> Response:
         client=request.client.host if request.client else "unknown",
     )
 
-    assert callable(call_next)
     response: Response = await call_next(request)
 
     duration_ms = round((time.monotonic() - start) * 1000, 2)
@@ -181,7 +187,7 @@ def cli_main() -> None:
         host="0.0.0.0",  # noqa: S104 — intentional for Cloud Run
         port=int(os.getenv("PORT", "8080")),
         reload=os.getenv("ENVIRONMENT") == "development",
-        log_level=_LOG_LEVEL.lower(),
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
         access_log=False,  # We log requests ourselves in the middleware
     )
 

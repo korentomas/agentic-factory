@@ -32,12 +32,9 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-SLACK_CHANNEL = os.getenv("SLACK_CHANNEL", "dev-agents")
-CLICKUP_API_TOKEN = os.getenv("CLICKUP_API_TOKEN", "")
-CLICKUP_TEAM_ID = os.getenv("CLICKUP_TEAM_ID", "")
-REPO_PATH = os.getenv("REPO_PATH", ".")
+def _get_env(key: str, default: str = "") -> str:
+    """Read env var at call time, not import time."""
+    return os.getenv(key, default)
 
 
 # ── Raw data collection ────────────────────────────────────────────────────────
@@ -56,11 +53,13 @@ class WeeklyStats:
     clickup_completed_titles: list[str]
 
 
-def _run_git(args: list[str], cwd: str = REPO_PATH) -> str:
+def _run_git(args: list[str], cwd: str | None = None) -> str:
     """
     Run a git command and return stdout as a stripped string.
     Returns empty string on any error (not running in a git repo, etc.).
     """
+    if cwd is None:
+        cwd = _get_env("REPO_PATH", ".")
     try:
         result = subprocess.run(
             ["git", *args],
@@ -76,11 +75,13 @@ def _run_git(args: list[str], cwd: str = REPO_PATH) -> str:
         return ""
 
 
-def _count_tests(cwd: str = REPO_PATH) -> int:
+def _count_tests(cwd: str | None = None) -> int:
     """
     Count total collected tests via pytest --collect-only.
     Returns 0 if pytest is not installed or no tests found.
     """
+    if cwd is None:
+        cwd = _get_env("REPO_PATH", ".")
     try:
         result = subprocess.run(
             ["python", "-m", "pytest", "--collect-only", "-q", "--no-header"],
@@ -100,11 +101,13 @@ def _count_tests(cwd: str = REPO_PATH) -> int:
         return 0
 
 
-def _find_large_files(cwd: str = REPO_PATH) -> list[str]:
+def _find_large_files(cwd: str | None = None) -> list[str]:
     """
     Find Python files >300 lines. Returns list of "path (N lines)" strings.
     Uses find + wc -l via subprocess.
     """
+    if cwd is None:
+        cwd = _get_env("REPO_PATH", ".")
     try:
         result = subprocess.run(
             [
@@ -133,7 +136,7 @@ async def _fetch_clickup_completed(client: httpx.AsyncClient) -> tuple[int, list
     Fetch tasks closed in the last 7 days from ClickUp.
     Returns (count, list_of_titles). Returns (0, []) if API not configured.
     """
-    if not CLICKUP_API_TOKEN or not CLICKUP_TEAM_ID:
+    if not _get_env("CLICKUP_API_TOKEN") or not _get_env("CLICKUP_TEAM_ID"):
         return 0, []
 
     # ClickUp API: get tasks updated in last 7 days with status "closed" or "complete"
@@ -144,8 +147,8 @@ async def _fetch_clickup_completed(client: httpx.AsyncClient) -> tuple[int, list
     try:
         # Get tasks across the team that were updated recently
         resp = await client.get(
-            f"https://api.clickup.com/api/v2/team/{CLICKUP_TEAM_ID}/task",
-            headers={"Authorization": CLICKUP_API_TOKEN},
+            f"https://api.clickup.com/api/v2/team/{_get_env("CLICKUP_TEAM_ID")}/task",
+            headers={"Authorization": _get_env("CLICKUP_API_TOKEN")},
             params={
                 "date_updated_gt": since_ms,
                 "statuses[]": ["closed", "complete", "done"],
@@ -294,19 +297,19 @@ async def _post_to_slack(text: str) -> None:
     Post the summary to Slack via incoming webhook.
     Raises httpx.HTTPStatusError on Slack API errors.
     """
-    if not SLACK_WEBHOOK_URL:
-        logger.info("slack_post_skipped", reason="SLACK_WEBHOOK_URL not set")
+    if not _get_env("SLACK_WEBHOOK_URL"):
+        logger.info("slack_post_skipped", reason="_get_env("SLACK_WEBHOOK_URL") not set")
         print("[Slack not configured — printing to stdout instead]\n")
         print(text)
         return
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
-            SLACK_WEBHOOK_URL,
-            json={"text": text, "channel": SLACK_CHANNEL},
+            _get_env("SLACK_WEBHOOK_URL"),
+            json={"text": text, "channel": _get_env("SLACK_CHANNEL", "dev-agents")},
         )
         resp.raise_for_status()
-        logger.info("slack_post_sent", channel=SLACK_CHANNEL, chars=len(text))
+        logger.info("slack_post_sent", channel=_get_env("SLACK_CHANNEL", "dev-agents"), chars=len(text))
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -317,8 +320,8 @@ async def run_summary() -> int:
     """
     log = logger.bind(job="weekly_summary")
 
-    if not ANTHROPIC_API_KEY:
-        log.error("ANTHROPIC_API_KEY not set")
+    if not _get_env("ANTHROPIC_API_KEY"):
+        log.error("_get_env("ANTHROPIC_API_KEY") not set")
         return 1
 
     log.info("weekly_summary_starting")
