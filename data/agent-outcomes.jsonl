@@ -1,16 +1,1 @@
-{
-  "outcome": "clean",
-  "pr_url": "https://github.com/korentomas/agentic-factory/pull/5",
-  "pr_number": 5,
-  "branch": "agent/cu-gh-3",
-  "risk_tier": "medium",
-  "checks": {
-    "gate": "success",
-    "tests": "success",
-    "review": "success",
-    "spec_audit": "success"
-  },
-  "files_changed": [],
-  "run_id": "22161661074",
-  "timestamp": "2026-02-18T23:22:51Z"
-}
+{"outcome":"clean","pr_url":"https://github.com/korentomas/agentic-factory/pull/5","pr_number":5,"branch":"agent/cu-gh-3","risk_tier":"medium","checks":{"gate":"success","tests":"success","review":"success","spec_audit":"success"},"files_changed":[],"review_findings":[],"run_id":"22161661074","timestamp":"2026-02-18T23:22:51Z"}

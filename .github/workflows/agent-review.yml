@@ -439,8 +439,8 @@ jobs:
                    | capture("(?:BLOCKING|\\[SPEC-AUDIT\\] BLOCKING|\\[SPEC-AUDIT\\] MISSING):? (?P<finding>[^\n]+)"; "g")
                    | .finding] | flatten | unique' 2>/dev/null || echo "[]")
 
-          # Build the outcome record
-          RECORD=$(jq -n \
+          # Build the outcome record (compact — one JSON object per line for JSONL)
+          RECORD=$(jq -c -n \
             --arg outcome "$OUTCOME" \
             --arg pr_url "${{ github.event.pull_request.html_url }}" \
             --argjson pr_number "$PR_NUMBER" \
