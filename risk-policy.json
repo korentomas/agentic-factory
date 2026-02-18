@@ -1,0 +1,62 @@
+{
+  "_comment": "AgentFactory risk policy. Edit riskTierRules for your repo structure.",
+  "version": "1",
+  "riskTierRules": {
+    "high": [
+      "app/auth/**",
+      "app/utils/tenant_filter.py",
+      "app/routers/admin/**",
+      "app/schemas/**",
+      "**/*.cypher",
+      "app/migrations/**",
+      "apps/api/app/auth/**",
+      "apps/api/app/utils/tenant_filter.py",
+      "apps/api/app/routers/admin/**",
+      "apps/api/app/schemas/**",
+      "apps/api/migrations/**"
+    ],
+    "medium": [
+      "app/routers/**",
+      "app/services/**",
+      "apps/api/app/routers/**",
+      "apps/api/app/services/**"
+    ],
+    "low": [
+      "apps/web/**",
+      "docs/**",
+      "*.md",
+      "**/*.md",
+      "*.txt",
+      "**/*.txt"
+    ]
+  },
+  "mergePolicy": {
+    "high": {
+      "requiredChecks": ["risk-policy-gate", "tests", "claude-review", "spec-audit"],
+      "humanApprovalRequired": true,
+      "description": "Auth, tenant isolation, schemas, migrations — always require tests + review"
+    },
+    "medium": {
+      "requiredChecks": ["risk-policy-gate", "tests", "claude-review"],
+      "humanApprovalRequired": true,
+      "description": "Routers and services — require tests + review"
+    },
+    "low": {
+      "requiredChecks": ["risk-policy-gate"],
+      "humanApprovalRequired": false,
+      "description": "Docs, frontend, markdown — gate only"
+    }
+  },
+  "blockedPatterns": [
+    {
+      "pattern": "DROP TABLE",
+      "reason": "Destructive DDL — must be a migration, not inline SQL",
+      "tier": "high"
+    },
+    {
+      "pattern": "DELETE FROM .* WHERE 1=1",
+      "reason": "Unscoped bulk delete",
+      "tier": "high"
+    }
+  ]
+}

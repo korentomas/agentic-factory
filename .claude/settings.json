@@ -1,0 +1,52 @@
+{
+  "_comment": "Claude Code hook configuration. Committed to repo — applies to all agent runs.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/inject-env.sh",
+            "description": "Inject DATABASE_URL, NEO4J_URI, REDIS_URL and other service env vars"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/enforce-tenant-safety.sh",
+            "description": "Block destructive DB operations and raw Neo4j writes without tenant labels"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/run-linter.sh",
+            "async": true,
+            "description": "Run ruff + mypy on changed Python files (async — doesn't block agent)"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/require-tests-pass.sh",
+            "description": "Block agent from stopping if tests fail (exit 2 = block stop)"
+          }
+        ]
+      }
+    ]
+  }
+}

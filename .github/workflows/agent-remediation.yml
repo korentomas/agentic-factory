@@ -1,0 +1,295 @@
+name: Agent Remediation
+
+# Triggered when the Claude review bot submits a review with BLOCKING findings.
+# Reads the findings, patches the code, pushes, and triggers a fresh review.
+# Max 2 rounds. Round 3 → Slack escalation, no more auto-fix.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  # ── Gate: only run on agent/* PRs with BLOCKING findings ────────────────────
+  check-trigger:
+    name: "Check: Should Remediate?"
+    runs-on: ubuntu-latest
+    outputs:
+      should_remediate: ${{ steps.check.outputs.should_remediate }}
+      round: ${{ steps.check.outputs.round }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+    steps:
+      - name: Check conditions
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+        run: |
+          # Only act on agent/* branches
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          if [[ "$BRANCH" != agent/* ]]; then
+            echo "should_remediate=false" >> "$GITHUB_OUTPUT"
+            echo "Not an agent branch — skipping"
+            exit 0
+          fi
+
+          # Only act if review body contains BLOCKING findings
+          REVIEW_BODY="${{ github.event.review.body }}"
+          if ! echo "$REVIEW_BODY" | grep -q "BLOCKING"; then
+            echo "should_remediate=false" >> "$GITHUB_OUTPUT"
+            echo "No BLOCKING issues found in review — skipping"
+            exit 0
+          fi
+
+          # Only act on reviews from the bot (not human reviewers)
+          REVIEWER="${{ github.event.review.user.login }}"
+          # The GitHub App bot login ends with [bot]
+          if ! echo "$REVIEWER" | grep -q "\[bot\]"; then
+            echo "should_remediate=false" >> "$GITHUB_OUTPUT"
+            echo "Review from human ($REVIEWER) — skipping auto-remediation"
+            exit 0
+          fi
+
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          # Determine remediation round from PR labels
+          LABELS=$(gh pr view "$PR_NUMBER" --json labels -q '.labels[].name' 2>/dev/null || echo "")
+
+          if echo "$LABELS" | grep -q "remediation-round-2"; then
+            # Already done 2 rounds — escalate, don't remediate
+            echo "should_remediate=false" >> "$GITHUB_OUTPUT"
+            echo "round=3" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "Max remediation rounds reached — will escalate"
+          elif echo "$LABELS" | grep -q "remediation-round-1"; then
+            echo "should_remediate=true" >> "$GITHUB_OUTPUT"
+            echo "round=2" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "Starting remediation round 2"
+          else
+            echo "should_remediate=true" >> "$GITHUB_OUTPUT"
+            echo "round=1" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "Starting remediation round 1"
+          fi
+
+  # ── Escalate if max rounds exceeded ─────────────────────────────────────────
+  escalate:
+    name: "Escalate: Needs Human"
+    needs: check-trigger
+    if: |
+      needs.check-trigger.outputs.should_remediate == 'false' &&
+      needs.check-trigger.outputs.round == '3'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+        run: |
+          gh pr comment "${{ needs.check-trigger.outputs.pr_number }}" \
+            --body "🛑 **Auto-remediation limit reached (2 rounds)**
+
+          This PR has been through 2 rounds of automated fixes and still has BLOCKING issues.
+          A human engineer needs to review and resolve the remaining findings.
+
+          **Next steps:**
+          1. Review the BLOCKING issues in the review comments above
+          2. Fix them manually or close this PR and create a new ticket
+          3. Remove the \`remediation-round-2\` label if you want to retry auto-fix"
+
+      - name: Notify orchestrator — escalation
+        env:
+          ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
+          CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
+        run: |
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          curl --retry 3 \
+            -X POST "${ORCHESTRATOR_URL}/callbacks/blocked" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
+            -d "{
+              \"pr_url\": \"${PR_URL}\",
+              \"pr_number\": ${{ needs.check-trigger.outputs.pr_number }},
+              \"branch\": \"${{ github.event.pull_request.head.ref }}\",
+              \"reason\": \"max-remediation-rounds\",
+              \"run_id\": \"${{ github.run_id }}\",
+              \"escalation\": true
+            }" \
+            --fail-with-body || echo "::warning::Escalation callback failed"
+
+  # ── Auto-remediation ─────────────────────────────────────────────────────────
+  remediate:
+    name: "Remediate: Fix Findings (Round ${{ needs.check-trigger.outputs.round }})"
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_remediate == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      neo4j:
+        image: neo4j:5.14
+        env:
+          NEO4J_AUTH: neo4j/testing123
+          NEO4J_PLUGINS: '["apoc"]'
+          NEO4J_dbms_security_procedures_unrestricted: apoc.*
+        ports:
+          - "7687:7687"
+          - "7474:7474"
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_APP_TOKEN }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]" 2>/dev/null || true
+
+      - name: Configure git
+        run: |
+          git config user.name "AgentFactory Bot"
+          git config user.email "agent@agentfactory.dev"
+
+      - name: Extract review findings
+        id: findings
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+        run: |
+          PR_NUMBER="${{ needs.check-trigger.outputs.pr_number }}"
+
+          # Get all review comments from the bot on this PR
+          FINDINGS=$(gh api \
+            "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+            --jq '[.[] | select(.user.type == "Bot")] | last | .body' \
+            2>/dev/null || echo "${{ github.event.review.body }}")
+
+          # Also get inline review comments
+          INLINE_COMMENTS=$(gh api \
+            "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.user.type == "Bot")] | map(.body) | join("\n---\n")' \
+            2>/dev/null || echo "")
+
+          # Write findings to a file for Claude to read
+          {
+            echo "# Review Findings"
+            echo ""
+            echo "## Summary Review"
+            echo "$FINDINGS"
+            echo ""
+            echo "## Inline Comments"
+            echo "$INLINE_COMMENTS"
+          } > /tmp/review_findings.md
+
+          echo "Findings written to /tmp/review_findings.md"
+          wc -l /tmp/review_findings.md
+
+      - name: Remediate with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          prompt: |
+            You are fixing code review findings on this PR. This is remediation round ${{ needs.check-trigger.outputs.round }} of 2.
+
+            Read the review findings at /tmp/review_findings.md.
+
+            Fix every item marked as BLOCKING. Do not skip any.
+            SUGGESTION items are optional — use your judgment.
+
+            After fixing:
+            1. Run the tests: pytest --tb=short -q
+            2. If tests fail, fix them too
+            3. Only stop when all BLOCKING issues are resolved AND tests pass
+
+            Read CLAUDE.md to understand the patterns you must follow.
+            The fixes must conform to the same standards as the original code.
+
+            Environment:
+            - DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app_test
+            - NEO4J_URI=bolt://localhost:7687
+            - NEO4J_PASSWORD=testing123
+            - REDIS_URL=redis://localhost:6379
+          claude_args: "--max-turns 20 --model claude-sonnet-4-5 --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
+
+      - name: Push fixes
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "fix(agent): address review findings (round ${{ needs.check-trigger.outputs.round }})"
+            git push origin "${{ github.event.pull_request.head.ref }}"
+          fi
+
+      - name: Label PR with remediation round
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+        run: |
+          PR_NUMBER="${{ needs.check-trigger.outputs.pr_number }}"
+          ROUND="${{ needs.check-trigger.outputs.round }}"
+
+          # Ensure the label exists
+          gh label create "remediation-round-${ROUND}" \
+            --color "FFA500" \
+            --description "Agent remediation round ${ROUND}" \
+            2>/dev/null || true
+
+          gh pr edit "$PR_NUMBER" --add-label "remediation-round-${ROUND}"
+
+      - name: Post remediation comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+        run: |
+          PR_NUMBER="${{ needs.check-trigger.outputs.pr_number }}"
+          ROUND="${{ needs.check-trigger.outputs.round }}"
+
+          if [ "$ROUND" = "2" ]; then
+            NOTE="⚠️ This is the final auto-remediation round. If BLOCKING issues remain after this, the PR will require human review."
+          else
+            NOTE="A second round of auto-remediation is available if needed."
+          fi
+
+          gh pr comment "$PR_NUMBER" \
+            --body "🔧 **Auto-remediation round ${ROUND} complete**
+
+          I've addressed the BLOCKING findings from the review. The PR has been updated.
+
+          ${NOTE}
+
+          A fresh review will begin automatically."

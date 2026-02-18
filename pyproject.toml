@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-factory"
+version = "0.1.0"
+description = "Autonomous AI code factory — tickets become PRs automatically"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [
+    { name = "AgentFactory Contributors" },
+]
+keywords = ["ai", "agents", "automation", "github", "clickup", "claude"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Code Generators",
+]
+
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    # HTTP client
+    "httpx>=0.28.0",
+    # Data validation
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    # Agent SDK
+    "claude-agent-sdk>=0.1.0",
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "structlog>=24.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",      # for TestClient
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "types-requests>=2.32.0",
+]
+
+[project.scripts]
+agent-factory = "apps.orchestrator.main:cli_main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["apps"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "ANN", # flake8-annotations
+    "S",   # flake8-bandit (security)
+    "T20", # flake8-print
+]
+ignore = [
+    "ANN101", # missing type annotation for `self`
+    "ANN102", # missing type annotation for `cls`
+    "S101",   # use of assert (fine in tests)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "S"]
+"apps/orchestrator/jobs/**" = ["T20"]  # print is fine in jobs
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+exclude = ["tests/"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--cov=apps --cov-report=term-missing --cov-fail-under=75"
+
+[tool.coverage.run]
+source = ["apps"]
+omit = ["*/tests/*", "*/migrations/*"]

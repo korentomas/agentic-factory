@@ -1,0 +1,266 @@
+"""
+ClickUp webhook handler.
+
+Receives ClickUp webhook events, verifies HMAC-SHA256 signatures,
+and dispatches `ai-agent`-tagged tasks to GitHub Actions.
+
+Registration:
+  POST https://api.clickup.com/api/v2/team/{team_id}/webhook
+  { "endpoint": "https://your-service/webhooks/clickup", "events": ["taskTagUpdated"] }
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import os
+import time
+from collections import OrderedDict
+from typing import Any
+
+import httpx
+import structlog
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
+
+from apps.orchestrator.models import AgentTask
+
+logger = structlog.get_logger(__name__)
+
+router = APIRouter()
+
+# ── Configuration ──────────────────────────────────────────────────────────────
+CLICKUP_WEBHOOK_SECRET = os.getenv("CLICKUP_WEBHOOK_SECRET", "")
+CLICKUP_API_TOKEN = os.getenv("CLICKUP_API_TOKEN", "")
+GITHUB_APP_TOKEN = os.getenv("GITHUB_APP_TOKEN", "")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "")
+
+# ── In-memory deduplication ────────────────────────────────────────────────────
+# Prevents duplicate dispatches if ClickUp sends the same webhook twice.
+# Uses an OrderedDict as a bounded LRU cache — no Redis dependency required.
+# In production with multiple instances, use Redis instead.
+
+class _DedupeCache:
+    """Bounded in-memory cache for webhook deduplication."""
+
+    def __init__(self, max_size: int = 1000, ttl_seconds: int = 3600) -> None:
+        self._cache: OrderedDict[str, float] = OrderedDict()
+        self._max_size = max_size
+        self._ttl = ttl_seconds
+
+    def is_duplicate(self, key: str) -> bool:
+        now = time.time()
+        if key in self._cache:
+            if now - self._cache[key] < self._ttl:
+                return True
+            # Expired — remove it
+            del self._cache[key]
+        return False
+
+    def mark_seen(self, key: str) -> None:
+        now = time.time()
+        self._cache[key] = now
+        self._cache.move_to_end(key)
+        # Evict oldest entries if over capacity
+        while len(self._cache) > self._max_size:
+            self._cache.popitem(last=False)
+
+
+_dedupe = _DedupeCache()
+
+
+# ── Webhook endpoint ───────────────────────────────────────────────────────────
+@router.post("/clickup")
+async def clickup_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, str]:
+    """
+    Receive ClickUp webhook events.
+
+    Only processes taskTagUpdated events where the "ai-agent" tag was added.
+    All other events are acknowledged but ignored.
+    """
+    # Read body FIRST — must happen before any other body access
+    raw_body = await request.body()
+
+    # ── Signature verification ─────────────────────────────────────────────────
+    if CLICKUP_WEBHOOK_SECRET:
+        signature = request.headers.get("X-Signature", "")
+        if not _verify_clickup_signature(raw_body, signature):
+            logger.warning(
+                "clickup_webhook_invalid_signature",
+                ip=request.client.host if request.client else "unknown",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid webhook signature",
+            )
+    else:
+        logger.warning(
+            "CLICKUP_WEBHOOK_SECRET not set — signature verification disabled. "
+            "Set this env var before going to production."
+        )
+
+    # ── Parse payload ──────────────────────────────────────────────────────────
+    try:
+        payload: dict[str, Any] = await request.json()
+    except Exception as exc:
+        logger.error("clickup_webhook_parse_error", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON payload",
+        ) from exc
+
+    event = payload.get("event", "")
+    webhook_id = payload.get("webhook_id", "unknown")
+    task_id = payload.get("task_id", "")
+
+    logger.info(
+        "clickup_webhook_received",
+        event=event,
+        webhook_id=webhook_id,
+        task_id=task_id,
+    )
+
+    # ── Filter: only handle taskTagUpdated ────────────────────────────────────
+    if event != "taskTagUpdated":
+        return {"action": "ignored", "reason": f"event_type_{event}_not_handled"}
+
+    # ── Filter: only handle "ai-agent" tag additions ──────────────────────────
+    history_items: list[dict[str, Any]] = payload.get("history_items", [])
+    ai_agent_added = any(
+        item.get("field") == "tag"
+        and isinstance(item.get("after"), dict)
+        and item["after"].get("name") == "ai-agent"
+        for item in history_items
+    )
+
+    if not ai_agent_added:
+        return {"action": "ignored", "reason": "ai_agent_tag_not_added"}
+
+    # ── Deduplication ─────────────────────────────────────────────────────────
+    dedupe_key = f"clickup:{task_id}:ai-agent-tag"
+    if _dedupe.is_duplicate(dedupe_key):
+        logger.info("clickup_webhook_duplicate", task_id=task_id)
+        return {"action": "ignored", "reason": "duplicate_event"}
+
+    _dedupe.mark_seen(dedupe_key)
+
+    # ── Dispatch in background (respond to ClickUp immediately) ───────────────
+    # ClickUp has a short timeout for webhook acknowledgment.
+    # Do the heavy lifting (ClickUp API call + GitHub dispatch) in background.
+    background_tasks.add_task(_dispatch_task, task_id)
+
+    logger.info(
+        "clickup_webhook_accepted",
+        task_id=task_id,
+        action="dispatching",
+    )
+    return {"action": "dispatching", "task_id": task_id}
+
+
+async def _dispatch_task(task_id: str) -> None:
+    """
+    Fetch task details from ClickUp and dispatch to GitHub Actions.
+    Runs as a background task — errors are logged but don't affect the webhook response.
+    """
+    log = logger.bind(task_id=task_id)
+
+    if not CLICKUP_API_TOKEN:
+        log.error("CLICKUP_API_TOKEN not set — cannot fetch task details")
+        return
+
+    if not GITHUB_APP_TOKEN or not GITHUB_REPO:
+        log.error(
+            "GitHub credentials not configured",
+            has_token=bool(GITHUB_APP_TOKEN),
+            has_repo=bool(GITHUB_REPO),
+        )
+        return
+
+    # ── Fetch full task details ────────────────────────────────────────────────
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"https://api.clickup.com/api/v2/task/{task_id}",
+                headers={"Authorization": CLICKUP_API_TOKEN},
+            )
+            resp.raise_for_status()
+            task_details: dict[str, Any] = resp.json()
+    except httpx.HTTPStatusError as exc:
+        log.error(
+            "clickup_api_error",
+            status_code=exc.response.status_code,
+            error=str(exc),
+        )
+        return
+    except httpx.RequestError as exc:
+        log.error("clickup_api_request_error", error=str(exc))
+        return
+
+    # ── Parse into AgentTask ───────────────────────────────────────────────────
+    try:
+        task = AgentTask.from_clickup_payload(task_id, task_details)
+    except ValueError as exc:
+        log.warning("agent_task_parse_failed", error=str(exc))
+        return
+
+    log.info(
+        "agent_task_parsed",
+        title=task.title[:80],
+        risk_tier=task.risk_tier,
+        complexity=task.complexity,
+    )
+
+    # ── Dispatch to GitHub Actions ─────────────────────────────────────────────
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"https://api.github.com/repos/{GITHUB_REPO}/dispatches",
+                headers={
+                    "Authorization": f"Bearer {GITHUB_APP_TOKEN}",
+                    "Accept": "application/vnd.github.v3+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                json={
+                    "event_type": "agent-task",
+                    "client_payload": task.to_dispatch_payload(),
+                },
+            )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        log.error(
+            "github_dispatch_error",
+            status_code=exc.response.status_code,
+            error=str(exc),
+            response_body=exc.response.text[:500],
+        )
+        return
+    except httpx.RequestError as exc:
+        log.error("github_dispatch_request_error", error=str(exc))
+        return
+
+    log.info(
+        "github_dispatch_sent",
+        repo=GITHUB_REPO,
+        branch=task.branch,
+        correlation_id=task.correlation_id,
+    )
+
+
+# ── Utilities ──────────────────────────────────────────────────────────────────
+def _verify_clickup_signature(body: bytes, provided_signature: str) -> bool:
+    """
+    Verify HMAC-SHA256 signature from ClickUp webhook.
+    ClickUp sends the hex digest in X-Signature header.
+    """
+    if not provided_signature:
+        return False
+
+    expected = hmac.new(
+        CLICKUP_WEBHOOK_SECRET.encode(),
+        body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    return hmac.compare_digest(expected, provided_signature)

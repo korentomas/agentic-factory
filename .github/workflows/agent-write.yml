@@ -1,0 +1,249 @@
+name: Agent Write
+
+# Triggered by the AgentFactory orchestrator via GitHub API:
+# POST /repos/{owner}/{repo}/dispatches
+# { "event_type": "agent-task", "client_payload": { ... } }
+
+on:
+  repository_dispatch:
+    types: [agent-task]
+
+jobs:
+  write:
+    name: "Agent: Write Code"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    # Isolated service containers — fresh databases for every agent run.
+    # Using the same pattern as test.yml so agents have a full working stack.
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      neo4j:
+        image: neo4j:5.14
+        env:
+          NEO4J_AUTH: neo4j/testing123
+          NEO4J_PLUGINS: '["apoc"]'
+          NEO4J_dbms_security_procedures_unrestricted: apoc.*
+        ports:
+          - "7687:7687"
+          - "7474:7474"
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Validate payload
+        id: validate
+        run: |
+          # Fail fast if required fields are missing
+          if [ -z "${{ github.event.client_payload.clickup_task_id }}" ]; then
+            echo "::error::Missing clickup_task_id in dispatch payload"
+            exit 1
+          fi
+          if [ -z "${{ github.event.client_payload.title }}" ]; then
+            echo "::error::Missing title in dispatch payload"
+            exit 1
+          fi
+          echo "task_id=${{ github.event.client_payload.clickup_task_id }}" >> "$GITHUB_OUTPUT"
+          echo "correlation_id=${{ github.event.client_payload.correlation_id }}" >> "$GITHUB_OUTPUT"
+          echo "complexity=${{ github.event.client_payload.complexity }}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # MUST use GitHub App token — not GITHUB_TOKEN.
+          # Commits made with GITHUB_TOKEN do NOT trigger CI workflows.
+          # This is a hard GitHub policy to prevent infinite loops.
+          token: ${{ secrets.GITHUB_APP_TOKEN }}
+          fetch-depth: 0
+
+      - name: Create agent branch
+        id: branch
+        run: |
+          BRANCH="agent/cu-${{ steps.validate.outputs.task_id }}"
+          git config user.name "AgentFactory Bot"
+          git config user.email "agent@agentfactory.dev"
+          git checkout -b "$BRANCH"
+          git push origin "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]" 2>/dev/null || true
+        # || true: orchestrator's deps don't need to be installed in the target repo.
+        # Target repos should have their own install step here.
+
+      # ── Plan-first protocol for complex tasks ──────────────────────────────
+      # For high-complexity tickets, generate an ExecPlan (PLANS.md) before writing code.
+      # This gives humans a chance to review the approach before 40 turns of code generation.
+      # See: https://cookbook.openai.com/articles/codex_exec_plans
+      - name: Generate ExecPlan (complex tasks only)
+        if: ${{ github.event.client_payload.complexity == 'high' }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          prompt: |
+            Read CLAUDE.md and ARCHITECTURE.md first.
+
+            Write a PLANS.md ExecPlan for this ticket. Required sections:
+
+            ## Purpose & Big Picture
+            What does this change accomplish? Why does it matter?
+
+            ## Context & Orientation
+            Full file paths you'll touch. Defined jargon. Interfaces you'll call.
+
+            ## Plan of Work
+            Checklist of steps with checkboxes. Mark [ ] todo, [x] done, [~] in progress.
+
+            ## Concrete Steps
+            Exact commands you'll run, exact functions you'll add/modify, expected output.
+
+            ## Validation & Acceptance
+            Observable behavior that proves the task is complete. Specific, not vague.
+            ("GET /health returns 200" not "it works")
+
+            ## Interfaces & Dependencies
+            Exact function signatures you'll add or change. Types included.
+
+            Write PLANS.md then STOP. Do not write any code yet.
+
+            ---
+            Ticket title: ${{ github.event.client_payload.title }}
+            Ticket description:
+            ${{ github.event.client_payload.description }}
+          claude_args: "--max-turns 10 --model claude-opus-4-5"
+
+      - name: Commit ExecPlan
+        if: ${{ github.event.client_payload.complexity == 'high' }}
+        run: |
+          if [ -f PLANS.md ]; then
+            git add PLANS.md
+            git commit -m "plan: ExecPlan for cu-${{ steps.validate.outputs.task_id }}"
+            git push origin "${{ steps.branch.outputs.branch }}"
+          fi
+
+      # ── Main coding step ───────────────────────────────────────────────────
+      # Claude Sonnet: action-biased, strong tool use, fast.
+      # Opus used for planning/review; Sonnet for implementation.
+      - name: Write code
+        id: agent_write
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          prompt: |
+            You are working on a development task from ClickUp.
+
+            Read CLAUDE.md and ARCHITECTURE.md before writing any code.
+            If PLANS.md exists, follow it — you wrote it in the planning step.
+
+            Task title: ${{ github.event.client_payload.title }}
+
+            Task description:
+            ${{ github.event.client_payload.description }}
+
+            Risk tier: ${{ github.event.client_payload.risk_tier }}
+
+            Requirements:
+            - Follow all patterns in CLAUDE.md exactly
+            - Every new function needs tests
+            - Run `pytest` before finishing — tests must pass
+            - Do not stop until tests are green
+
+            Environment:
+            - DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app_test
+            - NEO4J_URI=bolt://localhost:7687
+            - NEO4J_PASSWORD=testing123
+            - REDIS_URL=redis://localhost:6379
+          claude_args: "--max-turns 40 --model claude-sonnet-4-5 --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
+
+      - name: Create pull request
+        id: create_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+        run: |
+          # Push any remaining changes
+          git push origin "${{ steps.branch.outputs.branch }}" || true
+
+          PR_URL=$(gh pr create \
+            --draft \
+            --title "${{ github.event.client_payload.title }}" \
+            --body "$(cat <<'EOF'
+          ## Agent-Written PR
+
+          **ClickUp Task:** cu-${{ steps.validate.outputs.task_id }}
+          **Correlation ID:** ${{ steps.validate.outputs.correlation_id }}
+          **Risk Tier:** ${{ github.event.client_payload.risk_tier }}
+
+          This PR was written by AgentFactory. Review the changes carefully.
+
+          - [ ] Code reviewed by human
+          - [ ] Tests pass
+          - [ ] No anti-patterns from CLAUDE.md
+          EOF
+          )" \
+            --base main \
+            --head "${{ steps.branch.outputs.branch }}" \
+            2>&1)
+
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "Created PR: $PR_URL"
+
+      # ── Callback to orchestrator ───────────────────────────────────────────
+      # Always runs — even if prior steps failed — so orchestrator is never
+      # left waiting for a run that silently died.
+      - name: Callback to orchestrator
+        if: always()
+        env:
+          ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
+          CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
+        run: |
+          STATUS="${{ job.status }}"
+          PR_URL="${{ steps.create_pr.outputs.pr_url }}"
+
+          curl --retry 3 --retry-delay 5 \
+            -X POST "${ORCHESTRATOR_URL}/callbacks/agent-complete" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
+            -d "{
+              \"clickup_task_id\": \"${{ steps.validate.outputs.task_id }}\",
+              \"correlation_id\": \"${{ steps.validate.outputs.correlation_id }}\",
+              \"run_id\": \"${{ github.run_id }}\",
+              \"branch\": \"${{ steps.branch.outputs.branch }}\",
+              \"pr_url\": \"${PR_URL}\",
+              \"status\": \"${STATUS}\"
+            }" \
+            --fail-with-body || echo "::warning::Callback to orchestrator failed"
