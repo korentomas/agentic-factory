@@ -144,7 +144,7 @@ jobs:
             Ticket title: ${{ github.event.client_payload.title }}
             Ticket description:
             ${{ github.event.client_payload.description }}
-          claude_args: "--max-turns 10 --model claude-opus-4-5"
+          claude_args: "--max-turns 10 --model claude-opus-4-6"
 
       - name: Commit ExecPlan
         if: ${{ github.event.client_payload.complexity == 'high' }}
@@ -188,7 +188,7 @@ jobs:
             - NEO4J_URI=bolt://localhost:7687
             - NEO4J_PASSWORD=testing123
             - REDIS_URL=redis://localhost:6379
-          claude_args: "--max-turns 40 --model claude-sonnet-4-5 --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
+          claude_args: "--max-turns 40 --model claude-sonnet-4-6 --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
 
       - name: Create pull request
         id: create_pr

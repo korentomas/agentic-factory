@@ -29,10 +29,9 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-CLICKUP_WEBHOOK_SECRET = os.getenv("CLICKUP_WEBHOOK_SECRET", "")
-CLICKUP_API_TOKEN = os.getenv("CLICKUP_API_TOKEN", "")
-GITHUB_APP_TOKEN = os.getenv("GITHUB_APP_TOKEN", "")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "")
+def _get_env(key: str) -> str:
+    """Read env var at call time, not import time. Enables testing and late binding."""
+    return os.getenv(key, "")
 
 # ── In-memory deduplication ────────────────────────────────────────────────────
 # Prevents duplicate dispatches if ClickUp sends the same webhook twice.
@@ -84,9 +83,10 @@ async def clickup_webhook(
     raw_body = await request.body()
 
     # ── Signature verification ─────────────────────────────────────────────────
-    if CLICKUP_WEBHOOK_SECRET:
+    webhook_secret = _get_env("CLICKUP_WEBHOOK_SECRET")
+    if webhook_secret:
         signature = request.headers.get("X-Signature", "")
-        if not _verify_clickup_signature(raw_body, signature):
+        if not _verify_clickup_signature(raw_body, signature, webhook_secret):
             logger.warning(
                 "clickup_webhook_invalid_signature",
                 ip=request.client.host if request.client else "unknown",
@@ -166,15 +166,19 @@ async def _dispatch_task(task_id: str) -> None:
     """
     log = logger.bind(task_id=task_id)
 
-    if not CLICKUP_API_TOKEN:
+    clickup_token = _get_env("CLICKUP_API_TOKEN")
+    github_token = _get_env("GITHUB_APP_TOKEN")
+    github_repo = _get_env("GITHUB_REPO")
+
+    if not clickup_token:
         log.error("CLICKUP_API_TOKEN not set — cannot fetch task details")
         return
 
-    if not GITHUB_APP_TOKEN or not GITHUB_REPO:
+    if not github_token or not github_repo:
         log.error(
             "GitHub credentials not configured",
-            has_token=bool(GITHUB_APP_TOKEN),
-            has_repo=bool(GITHUB_REPO),
+            has_token=bool(github_token),
+            has_repo=bool(github_repo),
         )
         return
 
@@ -183,7 +187,7 @@ async def _dispatch_task(task_id: str) -> None:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
                 f"https://api.clickup.com/api/v2/task/{task_id}",
-                headers={"Authorization": CLICKUP_API_TOKEN},
+                headers={"Authorization": clickup_token},
             )
             resp.raise_for_status()
             task_details: dict[str, Any] = resp.json()
@@ -216,9 +220,9 @@ async def _dispatch_task(task_id: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"https://api.github.com/repos/{GITHUB_REPO}/dispatches",
+                f"https://api.github.com/repos/{github_repo}/dispatches",
                 headers={
-                    "Authorization": f"Bearer {GITHUB_APP_TOKEN}",
+                    "Authorization": f"Bearer {github_token}",
                     "Accept": "application/vnd.github.v3+json",
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
@@ -242,14 +246,14 @@ async def _dispatch_task(task_id: str) -> None:
 
     log.info(
         "github_dispatch_sent",
-        repo=GITHUB_REPO,
+        repo=github_repo,
         branch=task.branch,
         correlation_id=task.correlation_id,
     )
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
-def _verify_clickup_signature(body: bytes, provided_signature: str) -> bool:
+def _verify_clickup_signature(body: bytes, provided_signature: str, secret: str) -> bool:
     """
     Verify HMAC-SHA256 signature from ClickUp webhook.
     ClickUp sends the hex digest in X-Signature header.
@@ -258,7 +262,7 @@ def _verify_clickup_signature(body: bytes, provided_signature: str) -> bool:
         return False
 
     expected = hmac.new(
-        CLICKUP_WEBHOOK_SECRET.encode(),
+        secret.encode(),
         body,
         hashlib.sha256,
     ).hexdigest()

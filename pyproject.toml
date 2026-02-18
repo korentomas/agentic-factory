@@ -45,7 +45,7 @@ dev = [
     "httpx>=0.28.0",      # for TestClient
     "ruff>=0.8.0",
     "mypy>=1.13.0",
-    "types-requests>=2.32.0",
+    "types-httpx>=0.1.0",
 ]
 
 [project.scripts]
@@ -71,8 +71,6 @@ select = [
     "T20", # flake8-print
 ]
 ignore = [
-    "ANN101", # missing type annotation for `self`
-    "ANN102", # missing type annotation for `cls`
     "S101",   # use of assert (fine in tests)
 ]
 

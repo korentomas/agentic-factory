@@ -50,7 +50,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 USER appuser
 
-EXPOSE ${PORT}
+EXPOSE 8080
 
 # Use exec form so signals are passed directly to uvicorn (clean shutdown)
 CMD ["sh", "-c", "uvicorn apps.orchestrator.main:app --host 0.0.0.0 --port ${PORT} --workers 1 --log-level info"]

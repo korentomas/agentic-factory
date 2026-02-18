@@ -26,10 +26,9 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-CALLBACK_SECRET = os.getenv("CALLBACK_SECRET", "")
-CLICKUP_API_TOKEN = os.getenv("CLICKUP_API_TOKEN", "")
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-SLACK_CHANNEL = os.getenv("SLACK_CHANNEL", "dev-agents")
+def _get_env(key: str, default: str = "") -> str:
+    """Read env var at call time, not import time. Enables testing and late binding."""
+    return os.getenv(key, default)
 
 
 # ── Request models ─────────────────────────────────────────────────────────────
@@ -72,8 +71,9 @@ def _verify_callback_secret(request: Request) -> None:
     Raises HTTP 401 if the secret is wrong.
     Logs a warning (but allows) if no secret is configured in dev mode.
     """
-    if not CALLBACK_SECRET:
-        if os.getenv("ENVIRONMENT", "production") == "production":
+    secret = _get_env("CALLBACK_SECRET")
+    if not secret:
+        if _get_env("ENVIRONMENT", "production") == "production":
             logger.warning(
                 "callback_secret_not_configured",
                 impact="All callback endpoints are publicly accessible. Set CALLBACK_SECRET.",
@@ -82,7 +82,7 @@ def _verify_callback_secret(request: Request) -> None:
 
     provided = request.headers.get("X-Callback-Secret", "")
     # constant-time comparison prevents timing attacks
-    if not hmac.compare_digest(CALLBACK_SECRET.encode(), provided.encode()):
+    if not hmac.compare_digest(secret.encode(), provided.encode()):
         logger.warning(
             "callback_secret_mismatch",
             client=request.client.host if request.client else "unknown",
@@ -118,9 +118,10 @@ async def agent_complete(
     log.info("agent_complete_callback", pr_url=payload.pr_url or "(no PR created)")
 
     if payload.status in ("failure", "cancelled"):
+        github_repo = _get_env("GITHUB_REPO")
         actions_url = (
-            f"https://github.com/actions/runs/{payload.run_id}"
-            if payload.run_id
+            f"https://github.com/{github_repo}/actions/runs/{payload.run_id}"
+            if payload.run_id and github_repo
             else "(unknown run)"
         )
         await _post_slack(
@@ -262,7 +263,9 @@ async def _post_slack(text: str) -> None:
     Post a message to Slack via incoming webhook URL.
     Logs and swallows errors — notification failure must not break the callback response.
     """
-    if not SLACK_WEBHOOK_URL:
+    slack_url = _get_env("SLACK_WEBHOOK_URL")
+    slack_channel = _get_env("SLACK_CHANNEL", "dev-agents")
+    if not slack_url:
         logger.debug(
             "slack_skipped",
             reason="SLACK_WEBHOOK_URL not configured",
@@ -273,11 +276,11 @@ async def _post_slack(text: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
-                SLACK_WEBHOOK_URL,
-                json={"text": text, "channel": SLACK_CHANNEL},
+                slack_url,
+                json={"text": text, "channel": slack_channel},
             )
             resp.raise_for_status()
-            logger.debug("slack_sent", channel=SLACK_CHANNEL)
+            logger.debug("slack_sent", channel=slack_channel)
     except httpx.HTTPStatusError as exc:
         logger.error(
             "slack_post_failed",
@@ -294,7 +297,8 @@ async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
     Post a comment to a ClickUp task via the ClickUp API.
     Logs and swallows errors — notification failure must not break the callback response.
     """
-    if not CLICKUP_API_TOKEN:
+    clickup_token = _get_env("CLICKUP_API_TOKEN")
+    if not clickup_token:
         logger.debug(
             "clickup_comment_skipped",
             reason="CLICKUP_API_TOKEN not configured",
@@ -307,7 +311,7 @@ async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
             resp = await client.post(
                 f"https://api.clickup.com/api/v2/task/{task_id}/comment",
                 headers={
-                    "Authorization": CLICKUP_API_TOKEN,
+                    "Authorization": clickup_token,
                     "Content-Type": "application/json",
                 },
                 json={"comment_text": comment_text, "notify_all": False},

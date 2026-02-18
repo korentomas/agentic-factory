@@ -198,7 +198,7 @@ jobs:
             Risk tier for this PR: ${{ needs.risk-gate.outputs.tier }}
 
             If the risk tier is HIGH, be thorough. If LOW (docs only), be brief.
-          claude_args: "--max-turns 15 --model claude-opus-4-5 --allowedTools 'Read,Glob,Grep'"
+          claude_args: "--max-turns 15 --model claude-opus-4-6 --allowedTools 'Read,Glob,Grep'"
 
   # ── Step 4: Spec coverage audit ──────────────────────────────────────────────
   # Critical: separate from correctness review.
@@ -264,13 +264,13 @@ jobs:
 
             Do not read implementation files. If you find yourself reading a
             non-test file, stop and only look at test files.
-          claude_args: "--max-turns 8 --model claude-opus-4-5 --allowedTools 'Bash,Glob,Grep,Read'"
+          claude_args: "--max-turns 8 --model claude-opus-4-6 --allowedTools 'Bash,Glob,Grep,Read'"
 
   # ── Step 5: Callback to orchestrator ─────────────────────────────────────────
   notify-orchestrator:
     name: "Notify: Orchestrator"
-    needs: [risk-gate, tests, claude-review, spec-audit]
-    if: always() && needs.risk-gate.outputs.is_agent_pr == 'true'
+    needs: [check-branch, risk-gate, tests, claude-review, spec-audit]
+    if: always() && needs.check-branch.outputs.is_agent_pr == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Determine overall status
