@@ -70,12 +70,20 @@ cp CLAUDE.md /path/to/your-repo/
 **3. Set GitHub Actions secrets in your target repo**
 
 ```
-ANTHROPIC_API_KEY    — Your Anthropic API key
+ANTHROPIC_API_KEY    — Anthropic API key (or OpenRouter key — see below)
 GITHUB_APP_TOKEN     — GitHub App token (must use App, not GITHUB_TOKEN)
-ORCHESTRATOR_URL     — URL of your deployed orchestrator, e.g. https://agent-factory.run.app
-CLICKUP_API_TOKEN    — ClickUp personal API token
-SLACK_WEBHOOK_URL    — Slack incoming webhook URL
+ORCHESTRATOR_URL     — (optional) URL of your deployed orchestrator
+CLICKUP_API_TOKEN    — (optional) ClickUp personal API token
+SLACK_WEBHOOK_URL    — (optional) Slack incoming webhook URL
 ```
+
+**Using OpenRouter instead of Anthropic?** Add one more secret:
+```
+CLAUDE_SETTINGS      — {"env":{"ANTHROPIC_BASE_URL":"https://openrouter.ai/api/v1"}}
+```
+Then set `ANTHROPIC_API_KEY` to your OpenRouter key (`sk-or-v1-...`).
+This lets you use DeepSeek, Gemini, Qwen, Llama — any model on OpenRouter.
+See [docs/providers.md](docs/providers.md) for full provider configuration.
 
 **4. Deploy the orchestrator**
 

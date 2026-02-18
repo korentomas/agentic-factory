@@ -108,12 +108,19 @@ jobs:
       # For high-complexity tickets, generate an ExecPlan (PLANS.md) before writing code.
       # This gives humans a chance to review the approach before 40 turns of code generation.
       # See: https://cookbook.openai.com/articles/codex_exec_plans
+      # ── Provider configuration ──────────────────────────────────────────
+      # Supports Anthropic direct, OpenRouter, Bedrock, Vertex, or any gateway.
+      # Set ANTHROPIC_API_KEY for direct, or OPENROUTER_API_KEY + CLAUDE_SETTINGS
+      # with {"env":{"ANTHROPIC_BASE_URL":"https://openrouter.ai/api/v1"}}
+      # See docs/providers.md for full configuration.
+
       - name: Generate ExecPlan (complex tasks only)
         if: ${{ github.event.client_payload.complexity == 'high' }}
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          settings: ${{ secrets.CLAUDE_SETTINGS }}
           prompt: |
             Read CLAUDE.md and ARCHITECTURE.md first.
 
@@ -164,6 +171,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          settings: ${{ secrets.CLAUDE_SETTINGS }}
           prompt: |
             You are working on a development task from ClickUp.
 
