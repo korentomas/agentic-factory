@@ -1,78 +1,65 @@
 # Architecture
 
-> **Template** — Customize this file for your codebase before deploying AgentFactory.
-> Keep it under 60 lines. Every line is loaded into every agent's context window.
-> Focus on invariants-as-absences: what is *never* allowed is as important as what is preferred.
-> See: https://matklad.github.io/2021/02/06/ARCHITECTURE.md.html
-
----
-
 ## Bird's Eye
 
-<!-- 1–2 sentences describing what this system does and its key architectural constraints. -->
+AgentFactory is an autonomous code factory. ClickUp tickets or GitHub Issues tagged `ai-agent` become reviewed, tested PRs via GitHub Actions + Claude Code.
 
-Multi-tenant SaaS platform. All data belongs to a tenant. External access via HTTP API. Internal graph via Neo4j. Primary relational store is Postgres.
-
----
+Two parts: (1) a FastAPI orchestrator for ClickUp webhook → GitHub dispatch routing, and (2) GitHub Actions workflows that run Claude Code agents.
 
 ## Codemap
 
-<!-- Name files/modules explicitly. Don't hyperlink — links go stale, symbol search doesn't. -->
-
 ```
-apps/api/app/
-├── routers/          HTTP endpoints — thin, no business logic
-├── services/         All business logic lives here
-├── utils/
-│   └── tenant_filter.py   Tenant isolation enforcement — THE critical file
-├── neo4j_facade.py   Only interface to Neo4j — all Cypher lives here
-├── auth/             Token validation — every router depends on this
-└── schemas/          Pydantic models — the boundary types
-apps/api/migrations/  Alembic Postgres migrations — never write raw DDL
-apps/web/             Frontend — independent of API internal structure
-```
+apps/orchestrator/
+├── main.py                    FastAPI app — lifespan, middleware, health
+├── models.py                  AgentTask dataclass — parse-at-boundary
+├── routers/
+│   ├── clickup.py             ClickUp webhook — HMAC verify, dispatch to GitHub
+│   └── callbacks.py           GitHub Actions callbacks — notify Slack/ClickUp
+└── jobs/
+    ├── codebase_scan.py       Weekly scanner — Claude agent + ClickUp ticket creator
+    └── weekly_summary.py      Monday digest — stats gatherer + Claude narrator
 
----
+scripts/
+└── risk_policy_gate.py        Risk tier calculator — glob matching, GH Actions output
+
+.github/workflows/
+├── agent-issue-trigger.yml    GitHub Issue → repository_dispatch
+├── agent-write.yml            Claude writes code, creates draft PR
+├── agent-review.yml           Risk gate → tests → Claude review → spec audit
+├── agent-remediation.yml      Auto-fix loop (max 2 rounds)
+└── test.yml                   CI — lint, type check, tests
+
+.claude/
+├── settings.json              Hook configuration (committed to repo)
+└── hooks/                     Bash hooks: env inject, tenant safety, linter, test gate
+```
 
 ## Architectural Invariants
 
-**These are hard rules. Violations are BLOCKING in code review.**
-
-- Routers do not touch the database directly. Business logic goes in `services/`.
-- Nothing imports the Neo4j driver directly. All Cypher goes through `neo4j_facade`.
-- No Neo4j write without a tenant label. `T_{tenant_id}` on every node and edge.
-- Async routers never call sync functions. Check import source: `get_neo4j_facade` from `app.dependencies` is async; from `app.utils` is sync.
-- No auth bypass. Every router except `/health` has `verify_token` or an equivalent dependency.
-- No dynamic Cypher built from user input. Use parameterized queries only.
-- No `DROP TABLE` outside of migrations.
-
----
+- Env vars are NEVER read at module level. Always use `_get_env()` at call time.
+- External API failures in notifications NEVER break webhook responses.
+- Orchestrator callbacks are OPTIONAL — workflows work without orchestrator.
+- All httpx calls have explicit timeouts.
+- The orchestrator is STATELESS — GitHub is source of truth for agent runs.
+- Parse at the boundary: webhook payloads → AgentTask dataclass immediately.
 
 ## Layer Boundaries
 
 ```
-HTTP Request
+ClickUp Webhook / GitHub Issue
     │
     ▼
-[routers/]  ← auth enforced here (verify_token dependency)
+[routers/clickup.py]  ← HMAC verification, parse to AgentTask
     │
     ▼
-[services/] ← business logic, tenant scoping enforced here
-    │         (tenant_filter.py must be called before any query)
-    ├──▶ [Postgres via SQLAlchemy]
-    └──▶ [neo4j_facade.py] ← all Cypher here, never raw driver
+[GitHub API]  ← repository_dispatch to target repo
+    │
+    ▼
+[agent-write.yml]  ← Claude Code writes code
+    │
+    ▼
+[agent-review.yml]  ← risk gate → tests → Claude review → spec audit
+    │
+    ├──▶ [agent-remediation.yml]  ← auto-fix (max 2 rounds)
+    └──▶ [callbacks.py]  ← notify Slack + ClickUp
 ```
-
----
-
-## Things That Change Frequently
-
-- Route handlers in `routers/` — add freely following the existing pattern
-- Service layer in `services/` — business logic evolves; always add tests
-- Schema models — document breaking changes in the PR description
-
-## Things That Almost Never Change
-
-- `tenant_filter.py` — do not modify without a security review
-- `neo4j_facade.py` interface — stable; add methods, never remove
-- `auth/` — treat as read-only unless specifically tasked with auth work

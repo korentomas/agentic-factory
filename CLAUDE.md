@@ -1,98 +1,68 @@
-# CLAUDE.md — Agent Behavioral Rules
-
-> **Template** — Customize this for your codebase before deploying AgentFactory.
-> This file is your agent's harness. It loads into every session's context window.
-> Keep it under 150 lines. Cut ruthlessly — every line has a cost.
-> For the codemap, see ARCHITECTURE.md.
-
----
+# CLAUDE.md — Agent Behavioral Rules for AgentFactory
 
 ## Your Role
 
-You are a software engineer working on this codebase. You write real, production-quality code. No TODOs, no stubs, no placeholder comments. If you touch a file, leave it better than you found it.
-
----
+You are a software engineer working on AgentFactory — an open-source autonomous code factory. You write real, production-quality Python. No TODOs, no stubs, no placeholder comments.
 
 ## Before You Write Anything
 
-1. Read `ARCHITECTURE.md` — understand the layer boundaries and invariants
+1. Read `ARCHITECTURE.md` — understand the project structure
 2. Read `PLANS.md` if it exists — your ExecPlan for this task
-3. Run existing tests to establish a baseline: `pytest --tb=short -q`
+3. Run existing tests: `pytest tests/ -v --tb=short`
 4. Understand what already exists before adding anything new
 
----
+## Stack
+
+- Python 3.12+, FastAPI, httpx, structlog, Pydantic
+- Tests: pytest + pytest-asyncio, FastAPI TestClient
+- Lint: ruff, mypy
+- Build: hatchling
+- Claude Code hooks for safety gates
 
 ## Patterns You Must Follow
 
-### Database Access
-- **Postgres:** Use SQLAlchemy async sessions only. Never raw SQL strings.
-- **Neo4j:** Use `neo4j_facade.py` only. Never import the neo4j driver directly.
-- Every Neo4j write must include the tenant label: `T_{tenant_id}` on every node and relationship.
-- Use parameterized queries. Never interpolate user input into Cypher or SQL.
-
-### Auth
-- Every HTTP endpoint must have a `verify_token` dependency (or equivalent).
-- Exception: `/health` endpoint only.
-- Do not create new auth bypass mechanisms.
-
-### Async
-- Routers are async. Services called from async routers must also be async.
-- Check imports: `get_neo4j_facade` from `app.dependencies` = async. From `app.utils` = sync. Don't mix.
-- Never use `asyncio.run()` inside a running event loop.
-
-### Error Handling
-- No bare `except:` clauses. Catch specific exception types.
-- Log errors with context. Use the structured logger, not `print()`.
-- Propagate errors that indicate programmer mistakes (ValueError, TypeError). Catch and handle operational errors (network failures, timeouts).
+### Code Style
+- Type hints on all function signatures
+- Docstrings on all public functions and classes
+- Use `structlog` for logging, never `print()` in application code
+- Env vars read at call time via `_get_env()`, never at module level
+- Parse at the boundary: validate inputs into typed dataclasses immediately
 
 ### Testing
-- Every new function needs at least one test.
-- Tests verify behavior from the *specification*, not the implementation. Ask: "Would this test still pass if the implementation were subtly wrong?"
-- Use the existing fixtures in `conftest.py` — don't reinvent database setup.
-- Target: tests you write should increase overall coverage, not maintain it.
+- Every new function needs at least one test
+- Tests verify behavior from the *specification*, not the implementation
+- Use `monkeypatch` for env vars, not module-level patching
+- Use FastAPI TestClient for endpoint tests
+- Run tests before finishing: `pytest tests/ -v`
 
----
+### Error Handling
+- No bare `except:` — catch specific exceptions
+- Log errors with context via structlog
+- Notification failures (Slack, ClickUp) must not break webhook responses
+- Propagate programmer errors, handle operational errors
+
+### Git
+- One logical change per commit
+- Commit format: `feat:`, `fix:`, `test:`, `docs:`, `chore:`
+- Do not modify files unrelated to your task
 
 ## Anti-Patterns (BLOCKING violations)
 
-These will be flagged as BLOCKING in code review and must be fixed:
-
-- ❌ Raw Neo4j driver import outside `neo4j_facade.py`
-- ❌ Cypher query built from f-string with user data: `f"MATCH (n:{user_input})"`
-- ❌ Missing tenant label on any Neo4j write
-- ❌ `DROP TABLE` outside of a migration file
+- ❌ Env vars read at module import time (breaks testing and Cloud Run)
 - ❌ Bare `except:` or `except Exception:` without re-raise or logging
-- ❌ Sync function called from async context (creates implicit thread blocking)
-- ❌ Missing auth dependency on a new router endpoint
-- ❌ `print()` in production code (use structlog)
+- ❌ `print()` in application code (use structlog)
 - ❌ Hardcoded credentials or API keys
-
----
+- ❌ Missing type hints on public functions
+- ❌ Tests that only verify the implementation (tautological tests)
+- ❌ External API calls without timeout
+- ❌ Missing `if __name__ == "__main__"` guard on CLI entry points
 
 ## Workflow
 
-When you receive a task:
-
-1. **For complex tasks** (long description, multiple components): Write `PLANS.md` first. Outline your approach. Confirm the plan makes sense before writing code.
-2. **Write code** following the patterns above.
-3. **Write tests** for everything you add or change. Run them: `pytest apps/api/ -x`
-4. **Self-review**: check your diff against the anti-patterns list above before finishing.
-5. **Do not stop** until tests pass. The `require-tests-pass.sh` hook will block you anyway — better to fix it yourself.
-
----
-
-## File Scope
-
-Only modify files relevant to your assigned task. Do not refactor unrelated files. If you spot an unrelated issue, note it in a PR comment but don't fix it in this PR.
-
----
-
-## Commit Style
-
-```
-feat: add endpoint for bulk contact import
-fix: tenant label missing in contact relationship creation  
-test: add coverage for auth middleware edge cases
-```
-
-One logical change per commit. Don't bundle unrelated fixes.
+1. Read the task description and understand what's asked
+2. Run `pytest tests/ -v` to establish baseline
+3. Write code following the patterns above
+4. Write tests for everything you add
+5. Run `pytest tests/ -v` — fix until green
+6. Run `ruff check apps/ scripts/ tests/` — fix lint issues
+7. Self-review your diff against the anti-patterns list
