@@ -118,7 +118,7 @@ jobs:
       # ── Provider configuration ──────────────────────────────────────────
       # Supports Anthropic direct, OpenRouter, Bedrock, Vertex, or any gateway.
       # Set ANTHROPIC_API_KEY for direct, or OPENROUTER_API_KEY + CLAUDE_SETTINGS
-      # with {"env":{"ANTHROPIC_BASE_URL":"https://openrouter.ai/api/v1"}}
+      # with {"env":{"ANTHROPIC_BASE_URL":"https://openrouter.ai/api"}}
       # See docs/providers.md for full configuration.
 
       - name: Generate ExecPlan (complex tasks only)
@@ -161,8 +161,7 @@ jobs:
             Ticket title: ${{ github.event.client_payload.title }}
             Ticket description:
             ${{ github.event.client_payload.description }}
-          show_full_output: "true"
-          claude_args: "--max-turns 10 --model ${{ vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }}"
+          claude_args: "--max-turns 10 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }}"
 
       - name: Commit ExecPlan
         if: ${{ github.event.client_payload.complexity == 'high' }}

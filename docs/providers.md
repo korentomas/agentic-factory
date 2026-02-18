@@ -41,7 +41,7 @@ OPENROUTER_API_KEY=sk-or-v1-...
     settings: |
       {
         "env": {
-          "ANTHROPIC_BASE_URL": "https://openrouter.ai/api/v1"
+          "ANTHROPIC_BASE_URL": "https://openrouter.ai/api"
         }
       }
     claude_args: "--model anthropic/claude-sonnet-4-6 --max-turns 40"

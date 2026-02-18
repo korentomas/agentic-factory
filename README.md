@@ -89,7 +89,7 @@ The workflows use `actions/create-github-app-token` to generate short-lived toke
 
 **Using OpenRouter instead of Anthropic?** Add one more secret:
 ```
-CLAUDE_SETTINGS      — {"env":{"ANTHROPIC_BASE_URL":"https://openrouter.ai/api/v1"}}
+CLAUDE_SETTINGS      — {"env":{"ANTHROPIC_BASE_URL":"https://openrouter.ai/api"}}
 ```
 Then set `ANTHROPIC_API_KEY` to your OpenRouter key (`sk-or-v1-...`).
 This lets you use DeepSeek, Gemini, Qwen, Llama — any model on OpenRouter.
