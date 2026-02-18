@@ -96,6 +96,11 @@ jobs:
           BRANCH="agent/cu-${{ steps.validate.outputs.task_id }}"
           git config user.name "AgentFactory Bot"
           git config user.email "agent@agentfactory.dev"
+
+          # Clean up stale branch from previous failed runs
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git branch -D "$BRANCH" 2>/dev/null || true
+
           git checkout -b "$BRANCH"
           git push origin "$BRANCH"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
@@ -214,13 +219,32 @@ jobs:
             - REDIS_URL=redis://localhost:6379
           claude_args: "--max-turns 40 --model ${{ vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
 
+      - name: Commit agent changes
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "feat(agent): ${{ github.event.client_payload.title }}
+
+          Task: cu-${{ steps.validate.outputs.task_id }}
+          Correlation: ${{ steps.validate.outputs.correlation_id }}"
+            git push origin "${{ steps.branch.outputs.branch }}"
+          fi
+
       - name: Create pull request
         id: create_pr
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          # Push any remaining changes
+          # Push any remaining changes (in case agent already committed)
           git push origin "${{ steps.branch.outputs.branch }}" || true
+
+          # Check there are actually changes to PR
+          if git diff --quiet origin/main..HEAD; then
+            echo "::error::No code changes were produced by the agent"
+            exit 1
+          fi
 
           TASK_ID="${{ steps.validate.outputs.task_id }}"
           SOURCE="${{ github.event.client_payload.source }}"
