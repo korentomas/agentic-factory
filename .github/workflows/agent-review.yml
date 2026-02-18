@@ -365,8 +365,7 @@ jobs:
           if [ "$TIER" = "high" ]; then TIER_EMOJI="🔴"; fi
           if [ "$TIER" = "low" ]; then TIER_EMOJI="🟢"; fi
 
-          gh pr comment "${{ github.event.pull_request.number }}" \
-            --body "✅ **All automated checks passed**
+          BODY="✅ **All automated checks passed**
 
           ${TIER_EMOJI} Risk tier: \`${TIER}\`
           • Risk policy gate: ✅
@@ -374,8 +373,11 @@ jobs:
           • Code review: ✅
           • Spec coverage audit: ✅
 
-          Ready for human review and merge." \
-            2>/dev/null || true
+          Ready for human review and merge."
+
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "$BODY" || echo "::warning::Failed to post PR comment"
 
       - name: Callback — blocked
         if: steps.status.outputs.outcome != 'clean'
