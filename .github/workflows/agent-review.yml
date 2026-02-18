@@ -38,6 +38,13 @@ jobs:
       required_checks: ${{ steps.gate.outputs.required_checks }}
       blocked: ${{ steps.gate.outputs.blocked }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -66,7 +73,7 @@ jobs:
       - name: Post risk tier comment
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.APP_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           TIER="${{ steps.gate.outputs.tier }}"
           TIER_EMOJI="🟡"
@@ -165,6 +172,13 @@ jobs:
       (needs.tests.result == 'success' || needs.tests.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -175,7 +189,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
-          github_token: ${{ secrets.APP_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}
           prompt: |
             Review this PR as a senior engineer familiar with this codebase.
 
@@ -217,6 +231,13 @@ jobs:
       (needs.tests.result == 'success' || needs.tests.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -224,7 +245,7 @@ jobs:
       - name: Extract PR metadata
         id: meta
         env:
-          GH_TOKEN: ${{ secrets.APP_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           # Get the PR body (contains ClickUp task ID and description)
           PR_BODY=$(gh pr view "${{ github.event.pull_request.number }}" --json body -q .body)
@@ -237,7 +258,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
-          github_token: ${{ secrets.APP_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}
           prompt: |
             SPEC COVERAGE AUDIT — do NOT read any implementation files.
 
@@ -275,6 +296,13 @@ jobs:
     if: always() && needs.check-branch.outputs.is_agent_pr == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Determine overall status
         id: status
         run: |
@@ -322,7 +350,7 @@ jobs:
       - name: PR comment — review clean
         if: steps.status.outputs.outcome == 'clean'
         env:
-          GH_TOKEN: ${{ secrets.APP_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           TIER="${{ needs.risk-gate.outputs.tier }}"
           TIER_EMOJI="🟡"

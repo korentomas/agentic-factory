@@ -53,7 +53,7 @@ Drop a ticket. Come back to a PR.
 git clone https://github.com/your-org/agent-factory
 cd agent-factory
 cp .env.example .env
-# Fill in: CLICKUP_WEBHOOK_SECRET, GITHUB_APP_TOKEN, CLICKUP_API_TOKEN, SLACK_WEBHOOK_URL
+# Fill in: CLICKUP_WEBHOOK_SECRET, CLICKUP_API_TOKEN, SLACK_WEBHOOK_URL
 ```
 
 **2. Copy workflow files to your target repo**
@@ -67,15 +67,25 @@ cp ARCHITECTURE.md /path/to/your-repo/
 cp CLAUDE.md /path/to/your-repo/
 ```
 
-**3. Set GitHub Actions secrets in your target repo**
+**3. Create a GitHub App and set secrets**
+
+Create a [GitHub App](https://docs.github.com/en/apps/creating-github-apps) with these permissions:
+- **Contents:** Read & Write
+- **Pull requests:** Read & Write
+- **Issues:** Read & Write
+
+Install it on your target repo, then set these GitHub Actions secrets:
 
 ```
+APP_ID               — Your GitHub App's ID (found in app settings)
+APP_PRIVATE_KEY      — The app's private key (.pem file contents)
 ANTHROPIC_API_KEY    — Anthropic API key (or OpenRouter key — see below)
-GITHUB_APP_TOKEN     — GitHub App token (must use App, not GITHUB_TOKEN)
 ORCHESTRATOR_URL     — (optional) URL of your deployed orchestrator
 CLICKUP_API_TOKEN    — (optional) ClickUp personal API token
 SLACK_WEBHOOK_URL    — (optional) Slack incoming webhook URL
 ```
+
+The workflows use `actions/create-github-app-token` to generate short-lived tokens at runtime. This is more secure than PATs — tokens expire after 1 hour and are scoped to the installation.
 
 **Using OpenRouter instead of Anthropic?** Add one more secret:
 ```
@@ -118,7 +128,7 @@ Now tag any ClickUp ticket with `ai-agent` and watch it become a PR.
 No ClickUp? No orchestrator needed. Just use GitHub Issues:
 
 1. Copy the workflow files to your repo (step 2 above)
-2. Set `ANTHROPIC_API_KEY` and `GITHUB_APP_TOKEN` in GitHub Actions secrets
+2. Set `APP_ID`, `APP_PRIVATE_KEY`, and `ANTHROPIC_API_KEY` in GitHub Actions secrets
 3. Create an issue and add the `ai-agent` label
 
 That's it. The `agent-issue-trigger.yml` workflow dispatches issues through the same pipeline as ClickUp tickets. PRs auto-link back with `Closes #N`.
