@@ -599,6 +599,57 @@ class TestPostSlack:
             # Must not raise
             await _post_slack("test message")
 
+    @pytest.mark.asyncio
+    async def test_post_slack_http_error_logs_at_warning_not_error(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """HTTP errors from Slack are logged at warning level, not error."""
+        import structlog.testing
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "Server Error",
+                request=httpx.Request("POST", "https://hooks.slack.com/test"),
+                response=httpx.Response(500, text="server error"),
+            )
+        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with structlog.testing.capture_logs() as logs:
+                await _post_slack("test message")
+
+        failure_logs = [lg for lg in logs if lg.get("event") == "slack_post_failed"]
+        assert len(failure_logs) == 1
+        assert failure_logs[0]["log_level"] == "warning"
+
+    @pytest.mark.asyncio
+    async def test_post_slack_request_error_logs_at_warning_not_error(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """Network/connection errors from Slack are logged at warning level, not error."""
+        import structlog.testing
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            side_effect=httpx.RequestError(
+                "Connection refused",
+                request=httpx.Request("POST", "https://hooks.slack.com/test"),
+            )
+        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with structlog.testing.capture_logs() as logs:
+                await _post_slack("test message")
+
+        request_error_logs = [lg for lg in logs if lg.get("event") == "slack_request_error"]
+        assert len(request_error_logs) == 1
+        assert request_error_logs[0]["log_level"] == "warning"
+
 
 # ── _post_clickup_comment ─────────────────────────────────────────────────────
 
@@ -673,6 +724,61 @@ class TestPostClickUpComment:
         with patch("httpx.AsyncClient", return_value=mock_client):
             # Must not raise
             await _post_clickup_comment("task123", "Hello")
+
+    @pytest.mark.asyncio
+    async def test_post_clickup_comment_http_error_logs_at_warning_not_error(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """HTTP errors from ClickUp are logged at warning level, not error."""
+        import structlog.testing
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "Forbidden",
+                request=httpx.Request(
+                    "POST", "https://api.clickup.com/api/v2/task/t/comment"
+                ),
+                response=httpx.Response(403, text="forbidden"),
+            )
+        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with structlog.testing.capture_logs() as logs:
+                await _post_clickup_comment("task123", "Hello")
+
+        failure_logs = [lg for lg in logs if lg.get("event") == "clickup_comment_failed"]
+        assert len(failure_logs) == 1
+        assert failure_logs[0]["log_level"] == "warning"
+
+    @pytest.mark.asyncio
+    async def test_post_clickup_comment_request_error_logs_at_warning_not_error(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """Network/connection errors to ClickUp are logged at warning level, not error."""
+        import structlog.testing
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            side_effect=httpx.RequestError(
+                "DNS resolution failed",
+                request=httpx.Request(
+                    "POST", "https://api.clickup.com/api/v2/task/t/comment"
+                ),
+            )
+        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with structlog.testing.capture_logs() as logs:
+                await _post_clickup_comment("task123", "Hello")
+
+        request_error_logs = [lg for lg in logs if lg.get("event") == "clickup_request_error"]
+        assert len(request_error_logs) == 1
+        assert request_error_logs[0]["log_level"] == "warning"
 
 
 # ── _extract_task_id_from_branch ──────────────────────────────────────────────

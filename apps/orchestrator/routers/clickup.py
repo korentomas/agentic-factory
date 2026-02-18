@@ -97,8 +97,8 @@ async def clickup_webhook(
             )
     else:
         logger.warning(
-            "CLICKUP_WEBHOOK_SECRET not set — signature verification disabled. "
-            "Set this env var before going to production."
+            "clickup_webhook_secret_not_set",
+            impact="Signature verification disabled. Set CLICKUP_WEBHOOK_SECRET before production.",
         )
 
     # ── Parse payload ──────────────────────────────────────────────────────────

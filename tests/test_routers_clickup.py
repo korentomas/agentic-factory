@@ -168,6 +168,30 @@ class TestMissingWebhookSecret:
         assert resp.status_code == 200
         assert resp.json()["action"] == "dispatching"
 
+    def test_no_secret_logs_structured_warning(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch, env_vars: dict[str, str]
+    ) -> None:
+        """Missing CLICKUP_WEBHOOK_SECRET logs a structured warning event, not a bare string."""
+        import structlog.testing
+
+        monkeypatch.delenv("CLICKUP_WEBHOOK_SECRET")
+        payload = _make_tag_updated_payload(task_id="structured-warning-task")
+        body = json.dumps(payload).encode()
+
+        with structlog.testing.capture_logs() as logs:
+            client.post(
+                "/webhooks/clickup",
+                content=body,
+                headers={"Content-Type": "application/json"},
+            )
+
+        secret_warnings = [
+            lg for lg in logs if lg.get("event") == "clickup_webhook_secret_not_set"
+        ]
+        assert len(secret_warnings) == 1
+        assert secret_warnings[0]["log_level"] == "warning"
+        assert "impact" in secret_warnings[0]
+
     def test_no_secret_allows_even_with_garbage_signature(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch, env_vars: dict[str, str]
     ) -> None:
