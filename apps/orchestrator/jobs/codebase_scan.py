@@ -205,7 +205,7 @@ async def _run_agent() -> list[Finding]:
     Returns a list of parsed Finding objects.
     """
     try:
-        from claude_agent_sdk import ClaudeAgentOptions, query  # type: ignore[import]
+        from claude_agent_sdk import ClaudeAgentOptions, query
     except ImportError as exc:
         raise RuntimeError(
             "claude-agent-sdk not installed. Run: pip install claude-agent-sdk"
