@@ -434,9 +434,9 @@ jobs:
           BRANCH="${{ github.head_ref }}"
           TIER="${{ needs.risk-gate.outputs.tier }}"
 
-          # Get changed files
-          CHANGED_FILES=$(git diff --name-only "origin/main...origin/${BRANCH}" 2>/dev/null \
-            | jq -R -s -c 'split("\n") | map(select(. != ""))' || echo "[]")
+          # Get changed files via GitHub API (more reliable than git diff from main checkout)
+          CHANGED_FILES=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" \
+            --jq '[.[].filename]' 2>/dev/null || echo "[]")
 
           # Extract review findings from PR comments (bot comments containing BLOCKING or SPEC-AUDIT)
           REVIEW_FINDINGS=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
