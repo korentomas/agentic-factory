@@ -117,7 +117,7 @@ async def clickup_webhook(
 
     logger.info(
         "clickup_webhook_received",
-        event=event,
+        clickup_event=event,
         webhook_id=webhook_id,
         task_id=task_id,
     )

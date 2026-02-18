@@ -110,7 +110,7 @@ class AgentTask:
         task_details: dict[str, object],
         *,
         correlation_id: str | None = None,
-    ) -> "AgentTask":
+    ) -> AgentTask:
         """
         Parse and validate a ClickUp task payload into an AgentTask.
 

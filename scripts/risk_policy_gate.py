@@ -252,12 +252,12 @@ def print_summary(
     tier_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(tier, "⚪")
 
     print(f"\n{'='*60}")
-    print(f"Risk Policy Gate Result")
+    print("Risk Policy Gate Result")
     print(f"{'='*60}")
     print(f"Tier:     {tier_emoji} {tier.upper()}")
     print(f"Blocked:  {'YES ❌' if blocked else 'NO ✅'}")
     print(f"Files:    {len(changed_files)} changed")
-    print(f"\nRequired checks:")
+    print("\nRequired checks:")
     for check in required_checks:
         print(f"  • {check}")
 
@@ -266,7 +266,7 @@ def print_summary(
         for v in violations:
             print(f"  ❌ {v['file']}: {v['reason']}")
 
-    print(f"\nFile breakdown:")
+    print("\nFile breakdown:")
     for file_path in changed_files[:20]:  # Show max 20 files
         # Find which tier matched this file
         matched_tier = "low"  # default

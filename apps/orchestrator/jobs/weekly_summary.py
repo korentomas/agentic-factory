@@ -24,7 +24,7 @@ import os
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import structlog
@@ -136,19 +136,22 @@ async def _fetch_clickup_completed(client: httpx.AsyncClient) -> tuple[int, list
     Fetch tasks closed in the last 7 days from ClickUp.
     Returns (count, list_of_titles). Returns (0, []) if API not configured.
     """
-    if not _get_env("CLICKUP_API_TOKEN") or not _get_env("CLICKUP_TEAM_ID"):
+    clickup_token = _get_env("CLICKUP_API_TOKEN")
+    team_id = _get_env("CLICKUP_TEAM_ID")
+
+    if not clickup_token or not team_id:
         return 0, []
 
     # ClickUp API: get tasks updated in last 7 days with status "closed" or "complete"
     seven_days_ms = 7 * 24 * 60 * 60 * 1000
-    now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+    now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
     since_ms = now_ms - seven_days_ms
 
     try:
         # Get tasks across the team that were updated recently
         resp = await client.get(
-            f"https://api.clickup.com/api/v2/team/{_get_env("CLICKUP_TEAM_ID")}/task",
-            headers={"Authorization": _get_env("CLICKUP_API_TOKEN")},
+            f"https://api.clickup.com/api/v2/team/{team_id}/task",
+            headers={"Authorization": clickup_token},
             params={
                 "date_updated_gt": since_ms,
                 "statuses[]": ["closed", "complete", "done"],
@@ -170,7 +173,7 @@ async def gather_stats() -> WeeklyStats:
     """
     Gather all raw stats. Network calls run concurrently.
     """
-    week_ending = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    week_ending = datetime.now(tz=UTC).strftime("%Y-%m-%d")
 
     # Git stats (synchronous subprocess calls — run sequentially, fast)
     all_merges_raw = _run_git(["log", "--merges", "--since=7 days ago", "--format=%s"])
@@ -228,7 +231,7 @@ Write a clean, concise Slack message summarising this data. Use this structure:
 
 *📊 Weekly Engineering Digest — {stats.week_ending}*
 
-*Commits merged this week:* {{total_merges}} ({{agent_merges}} agent-written, {{manual_merges}} manual)
+*Commits merged:* {{total_merges}} ({{agent_merges}} agent, {{manual_merges}} manual)
 {{list up to 5 notable merges, one per bullet}}
 
 *Tests:* {{total_test_count}} collected
@@ -298,7 +301,7 @@ async def _post_to_slack(text: str) -> None:
     Raises httpx.HTTPStatusError on Slack API errors.
     """
     if not _get_env("SLACK_WEBHOOK_URL"):
-        logger.info("slack_post_skipped", reason="_get_env("SLACK_WEBHOOK_URL") not set")
+        logger.info("slack_post_skipped", reason="SLACK_WEBHOOK_URL not set")
         print("[Slack not configured — printing to stdout instead]\n")
         print(text)
         return
@@ -309,7 +312,8 @@ async def _post_to_slack(text: str) -> None:
             json={"text": text, "channel": _get_env("SLACK_CHANNEL", "dev-agents")},
         )
         resp.raise_for_status()
-        logger.info("slack_post_sent", channel=_get_env("SLACK_CHANNEL", "dev-agents"), chars=len(text))
+        channel = _get_env("SLACK_CHANNEL", "dev-agents")
+        logger.info("slack_post_sent", channel=channel, chars=len(text))
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -321,7 +325,7 @@ async def run_summary() -> int:
     log = logger.bind(job="weekly_summary")
 
     if not _get_env("ANTHROPIC_API_KEY"):
-        log.error("_get_env("ANTHROPIC_API_KEY") not set")
+        log.error("ANTHROPIC_API_KEY not set")
         return 1
 
     log.info("weekly_summary_starting")

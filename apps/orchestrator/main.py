@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections.abc import AsyncIterator, Callable, Awaitable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import structlog
@@ -20,6 +20,7 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from apps.orchestrator.routers import callbacks, clickup
+
 
 # ── Structured logging ─────────────────────────────────────────────────────────
 def _configure_logging() -> None:

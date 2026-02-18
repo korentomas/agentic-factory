@@ -20,15 +20,13 @@ Issues detected:
 
 Usage:
   python -m apps.orchestrator.jobs.codebase_scan
-  # Or via Cloud Run Job (set _get_env("REPO_PATH", ".") to the checked-out target repo)
+  # Or via Cloud Run Job (set REPO_PATH env var to the checked-out target repo)
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import os
-import re
 import sys
 from dataclasses import dataclass
 from typing import Literal
@@ -60,7 +58,8 @@ class Finding:
       FINDING: <category> | <severity> | <file:line> | <description>
 
     Example:
-      FINDING: missing-auth | high | apps/api/app/routers/users.py:42 | POST /users/bulk has no verify_token dependency
+      FINDING: missing-auth | high | apps/api/routers/users.py:42
+        | POST /users/bulk has no verify_token dependency
     """
 
     category: str
@@ -70,7 +69,7 @@ class Finding:
     raw_line: str
 
     @classmethod
-    def parse(cls, line: str) -> "Finding | None":
+    def parse(cls, line: str) -> Finding | None:
         """
         Parse a FINDING: line emitted by the Claude agent.
         Returns None if the line doesn't match the expected format.
@@ -159,7 +158,7 @@ Look for: sync database calls (`.execute(` without `await`) inside `async def` f
 
 How to scan:
   grep -rn "asyncio.run(" apps/ --include="*.py"
-  grep -B5 "\.execute(" apps/ --include="*.py" | grep -B5 "async def"
+  grep -B5 "\\.execute(" apps/ --include="*.py" | grep -B5 "async def"
 
 ### 4. Test Coverage Gaps
 Look for router files in apps/*/routers/ that have no corresponding test file.
@@ -184,9 +183,9 @@ For each finding, emit exactly one line in this format:
   FINDING: <category> | <severity: high/medium/low> | <file:line> | <description>
 
 Examples:
-  FINDING: missing-auth | high | apps/api/app/routers/contacts.py:87 | POST /contacts/import endpoint has no auth dependency
-  FINDING: large-file | low | apps/api/app/services/sync.py:1 | File is 512 lines — split into smaller modules
-  FINDING: tenant-isolation | high | apps/api/app/services/graph.py:203 | MATCH (n:Person) query missing T_{{tenant_id}} label
+  FINDING: missing-auth | high | apps/routers/contacts.py:87 | POST /contacts/import has no auth
+  FINDING: large-file | low | apps/services/sync.py:1 | File is 512 lines — split into modules
+  FINDING: tenant-isolation | high | apps/services/graph.py:203 | MATCH (n:Person) missing T_ label
 
 Rules:
 - One FINDING: line per issue. Do not group multiple issues into one line.
@@ -258,19 +257,22 @@ async def _create_clickup_ticket(finding: Finding, client: httpx.AsyncClient) ->
     Create a ClickUp task for a finding in the backlog list.
     Returns True if created successfully, False on error.
     """
-    if not _get_env("CLICKUP_BACKLOG_LIST_ID") or not _get_env("CLICKUP_API_TOKEN"):
+    backlog_list_id = _get_env("CLICKUP_BACKLOG_LIST_ID")
+    clickup_token = _get_env("CLICKUP_API_TOKEN")
+
+    if not backlog_list_id or not clickup_token:
         logger.debug(
             "clickup_ticket_skipped",
-            reason="_get_env("CLICKUP_BACKLOG_LIST_ID") or _get_env("CLICKUP_API_TOKEN") not configured",
+            reason="CLICKUP_BACKLOG_LIST_ID or CLICKUP_API_TOKEN not configured",
             finding=finding.category,
         )
         return False
 
     try:
         resp = await client.post(
-            f"https://api.clickup.com/api/v2/list/{_get_env("CLICKUP_BACKLOG_LIST_ID")}/task",
+            f"https://api.clickup.com/api/v2/list/{backlog_list_id}/task",
             headers={
-                "Authorization": _get_env("CLICKUP_API_TOKEN"),
+                "Authorization": clickup_token,
                 "Content-Type": "application/json",
             },
             json={
@@ -310,13 +312,16 @@ async def _fetch_existing_scan_tickets(client: httpx.AsyncClient) -> set[str]:
     Fetch existing open tickets tagged 'auto-scan' to avoid duplicates.
     Returns a set of title strings (lowercased) for fuzzy deduplication.
     """
-    if not _get_env("CLICKUP_BACKLOG_LIST_ID") or not _get_env("CLICKUP_API_TOKEN"):
+    backlog_list_id = _get_env("CLICKUP_BACKLOG_LIST_ID")
+    clickup_token = _get_env("CLICKUP_API_TOKEN")
+
+    if not backlog_list_id or not clickup_token:
         return set()
 
     try:
         resp = await client.get(
-            f"https://api.clickup.com/api/v2/list/{_get_env("CLICKUP_BACKLOG_LIST_ID")}/task",
-            headers={"Authorization": _get_env("CLICKUP_API_TOKEN")},
+            f"https://api.clickup.com/api/v2/list/{backlog_list_id}/task",
+            headers={"Authorization": clickup_token},
             params={"tags[]": "auto-scan", "statuses[]": "open", "page": 0},
         )
         resp.raise_for_status()
@@ -345,7 +350,7 @@ async def run_scan() -> int:
     log = logger.bind(job="codebase_scan", repo_path=_get_env("REPO_PATH", "."))
 
     if not _get_env("ANTHROPIC_API_KEY"):
-        log.error("_get_env("ANTHROPIC_API_KEY") not set")
+        log.error("ANTHROPIC_API_KEY not set")
         return 1
 
     log.info("codebase_scan_starting")
@@ -397,7 +402,7 @@ async def run_scan() -> int:
     )
 
     # Print summary to stdout (visible in Cloud Run Job logs)
-    print(f"\n=== Codebase Scan Summary ===")
+    print("\n=== Codebase Scan Summary ===")
     print(f"Total findings: {len(findings)}")
     print(f"Tickets created: {created}")
     print(f"Duplicates skipped: {skipped_duplicate}")
