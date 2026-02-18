@@ -28,11 +28,15 @@ jobs:
        github.event.comment.user.login != 'agentfactory-bot[bot]')
     runs-on: ubuntu-latest
     outputs:
-      is_clear: ${{ steps.triage.outputs.is_clear }}
+      is_clear: ${{ steps.parse.outputs.is_clear }}
       task_id: ${{ steps.meta.outputs.task_id }}
+      title: ${{ steps.meta.outputs.title }}
       complexity: ${{ steps.meta.outputs.complexity }}
       risk_tier: ${{ steps.meta.outputs.risk_tier }}
       issue_number: ${{ steps.meta.outputs.issue_number }}
+      question: ${{ steps.parse.outputs.question }}
+      default: ${{ steps.parse.outputs.default }}
+      why: ${{ steps.parse.outputs.why }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -104,6 +108,7 @@ jobs:
 
       - name: Triage with Claude
         id: triage
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
@@ -114,43 +119,36 @@ jobs:
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           allowed_bots: "agentfactory-bot[bot]"
           prompt: |
-            You are triaging a GitHub issue before an AI coding agent works on it.
-            Your job: determine if the issue is clear enough to implement WITHOUT
-            any ambiguity.
+            You are triaging a GitHub issue. Read /tmp/issue_context.md.
 
-            Read the issue context at /tmp/issue_context.md.
-            Read CLAUDE.md and ARCHITECTURE.md to understand the codebase.
-
-            Evaluate the issue against these criteria:
+            Quickly evaluate:
             1. Is the desired behavior clearly described?
             2. Are acceptance criteria specified or inferable?
-            3. Are there any ambiguous requirements where multiple interpretations exist?
-            4. Can you identify which files need to change?
+            3. Are there ambiguous requirements with multiple valid interpretations?
 
-            Write your analysis to /tmp/triage_result.json in this EXACT format:
+            Write your result to /tmp/triage_result.json:
             {
-              "is_clear": true or false,
-              "confidence": 0.0 to 1.0,
-              "specification": {
-                "current_state": ["bullet points describing current behavior"],
-                "desired_state": ["bullet points describing desired behavior"],
-                "files_to_change": ["list of file paths"],
-                "acceptance_criteria": ["list of testable criteria"]
-              },
-              "clarification_needed": null or {
-                "question": "ONE specific question to ask",
-                "default_assumption": "what you would assume if no answer",
-                "why": "why this matters for implementation"
+              "is_clear": true,
+              "confidence": 0.9,
+              "clarification_needed": null
+            }
+
+            Or if unclear:
+            {
+              "is_clear": false,
+              "confidence": 0.4,
+              "clarification_needed": {
+                "question": "ONE specific question",
+                "default_assumption": "what you'd assume if no answer",
+                "why": "brief reason"
               }
             }
 
             Rules:
-            - If confidence >= 0.8 and no critical ambiguity: is_clear = true
-            - If ANY requirement has multiple valid interpretations: is_clear = false
-            - Ask exactly ONE question — the most important one
-            - Always provide a default_assumption so the author can just confirm
-            - The specification should be concrete enough to implement from
-          claude_args: "--max-turns 8 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Glob,Grep,Bash'"
+            - confidence >= 0.8 → is_clear = true
+            - Multiple valid interpretations → is_clear = false
+            - Write the JSON file immediately, do not over-analyze
+          claude_args: "--max-turns 5 --model ${{ vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Bash'"
 
       - name: Parse triage result
         id: parse
