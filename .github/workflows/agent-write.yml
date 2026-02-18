@@ -161,7 +161,8 @@ jobs:
             Ticket title: ${{ github.event.client_payload.title }}
             Ticket description:
             ${{ github.event.client_payload.description }}
-          claude_args: "--max-turns 10 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }}"
+          show_full_output: "true"
+          claude_args: "--max-turns 10 --model ${{ vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }}"
 
       - name: Commit ExecPlan
         if: ${{ github.event.client_payload.complexity == 'high' }}
