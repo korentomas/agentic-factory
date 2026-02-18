@@ -131,6 +131,7 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           allowed_bots: "agentfactory-bot[bot]"
+          show_full_output: "true"
           prompt: |
             Read CLAUDE.md and ARCHITECTURE.md first.
 
