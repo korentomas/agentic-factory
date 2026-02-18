@@ -295,7 +295,7 @@ jobs:
 
             Do not read implementation files. If you find yourself reading a
             non-test file, stop and only look at test files.
-          claude_args: "--max-turns 8 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Bash,Glob,Grep,Read'"
+          claude_args: "--max-turns 15 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Bash,Glob,Grep,Read'"
 
   # ── Step 5: Callback to orchestrator ─────────────────────────────────────────
   notify-orchestrator:
