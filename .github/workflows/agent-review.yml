@@ -298,18 +298,46 @@ jobs:
           ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
           CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
         run: |
-          curl --retry 3 \
-            -X POST "${ORCHESTRATOR_URL}/callbacks/review-clean" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
-            -d "{
-              \"pr_url\": \"${{ github.event.pull_request.html_url }}\",
-              \"pr_number\": ${{ github.event.pull_request.number }},
-              \"branch\": \"${{ github.head_ref }}\",
-              \"risk_tier\": \"${{ needs.risk-gate.outputs.tier }}\",
-              \"run_id\": \"${{ github.run_id }}\"
-            }" \
-            --fail-with-body || echo "::warning::Callback failed"
+          # Orchestrator callback (optional — skipped if not configured)
+          if [ -n "$ORCHESTRATOR_URL" ]; then
+            curl --retry 3 \
+              -X POST "${ORCHESTRATOR_URL}/callbacks/review-clean" \
+              -H "Content-Type: application/json" \
+              -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
+              -d "{
+                \"pr_url\": \"${{ github.event.pull_request.html_url }}\",
+                \"pr_number\": ${{ github.event.pull_request.number }},
+                \"branch\": \"${{ github.head_ref }}\",
+                \"risk_tier\": \"${{ needs.risk-gate.outputs.tier }}\",
+                \"run_id\": \"${{ github.run_id }}\"
+              }" \
+              --fail-with-body || echo "::warning::Orchestrator callback failed"
+          else
+            echo "No ORCHESTRATOR_URL configured — skipping callback"
+          fi
+
+      # Post a summary comment directly on the PR (works with or without orchestrator)
+      - name: PR comment — review clean
+        if: steps.status.outputs.outcome == 'clean'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+        run: |
+          TIER="${{ needs.risk-gate.outputs.tier }}"
+          TIER_EMOJI="🟡"
+          if [ "$TIER" = "high" ]; then TIER_EMOJI="🔴"; fi
+          if [ "$TIER" = "low" ]; then TIER_EMOJI="🟢"; fi
+
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --body "✅ **All automated checks passed**
+
+          ${TIER_EMOJI} Risk tier: \`${TIER}\`
+          • Risk policy gate: ✅
+          • Tests: ✅
+          • Code review: ✅
+          • Spec coverage audit: ✅
+
+          Ready for human review and merge." \
+            2>/dev/null || true
 
       - name: Callback — blocked
         if: steps.status.outputs.outcome != 'clean'
@@ -317,15 +345,19 @@ jobs:
           ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
           CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
         run: |
-          curl --retry 3 \
-            -X POST "${ORCHESTRATOR_URL}/callbacks/blocked" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
-            -d "{
-              \"pr_url\": \"${{ github.event.pull_request.html_url }}\",
-              \"pr_number\": ${{ github.event.pull_request.number }},
-              \"branch\": \"${{ github.head_ref }}\",
-              \"reason\": \"${{ steps.status.outputs.outcome }}\",
-              \"run_id\": \"${{ github.run_id }}\"
-            }" \
-            --fail-with-body || echo "::warning::Callback failed"
+          if [ -n "$ORCHESTRATOR_URL" ]; then
+            curl --retry 3 \
+              -X POST "${ORCHESTRATOR_URL}/callbacks/blocked" \
+              -H "Content-Type: application/json" \
+              -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
+              -d "{
+                \"pr_url\": \"${{ github.event.pull_request.html_url }}\",
+                \"pr_number\": ${{ github.event.pull_request.number }},
+                \"branch\": \"${{ github.head_ref }}\",
+                \"reason\": \"${{ steps.status.outputs.outcome }}\",
+                \"run_id\": \"${{ github.run_id }}\"
+              }" \
+              --fail-with-body || echo "::warning::Orchestrator callback failed"
+          else
+            echo "No ORCHESTRATOR_URL configured — skipping callback"
+          fi

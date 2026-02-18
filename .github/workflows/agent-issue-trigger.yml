@@ -1,0 +1,91 @@
+name: Agent Issue Trigger
+
+# Fires when a GitHub Issue is labeled "ai-agent".
+# Extracts the issue title + body and dispatches to agent-write.yml
+# via repository_dispatch — same payload format, same pipeline.
+#
+# No orchestrator needed. Pure GitHub-native flow.
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  dispatch:
+    name: "Dispatch: Issue → Agent"
+    if: github.event.label.name == 'ai-agent'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate issue
+        id: validate
+        run: |
+          TITLE="${{ github.event.issue.title }}"
+          BODY="${{ github.event.issue.body }}"
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+
+          if [ -z "$TITLE" ]; then
+            echo "::error::Issue has no title"
+            exit 1
+          fi
+
+          # Use issue number as task ID for branch naming
+          echo "task_id=gh-${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
+
+          # Determine complexity from body length
+          BODY_LENGTH=${#BODY}
+          if [ "$BODY_LENGTH" -gt 500 ]; then
+            echo "complexity=high" >> "$GITHUB_OUTPUT"
+          else
+            echo "complexity=standard" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine risk tier
+        id: risk
+        run: |
+          COMBINED="${{ github.event.issue.title }} ${{ github.event.issue.body }}"
+          COMBINED_LOWER=$(echo "$COMBINED" | tr '[:upper:]' '[:lower:]')
+
+          if echo "$COMBINED_LOWER" | grep -qE "auth|tenant|security|migration|schema|admin|password|token|credential|secret"; then
+            echo "risk_tier=high" >> "$GITHUB_OUTPUT"
+          elif echo "$COMBINED_LOWER" | grep -qE "api|endpoint|route|service|webhook|billing"; then
+            echo "risk_tier=medium" >> "$GITHUB_OUTPUT"
+          else
+            echo "risk_tier=low" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch to agent-write
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+        run: |
+          # Generate correlation ID
+          CORRELATION_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+
+          gh api repos/${{ github.repository }}/dispatches \
+            --method POST \
+            -f event_type=agent-task \
+            -f "client_payload[clickup_task_id]=${{ steps.validate.outputs.task_id }}" \
+            -f "client_payload[title]=${{ steps.validate.outputs.title }}" \
+            -f "client_payload[description]=${{ github.event.issue.body }}" \
+            -f "client_payload[correlation_id]=${CORRELATION_ID}" \
+            -f "client_payload[risk_tier]=${{ steps.risk.outputs.risk_tier }}" \
+            -f "client_payload[complexity]=${{ steps.validate.outputs.complexity }}" \
+            -f "client_payload[branch]=agent/gh-${{ github.event.issue.number }}" \
+            -f "client_payload[source]=github-issue" \
+            -f "client_payload[issue_number]=${{ github.event.issue.number }}"
+
+          echo "Dispatched issue #${{ github.event.issue.number }} to agent-write"
+
+      - name: Acknowledge on issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "🤖 **AgentFactory** picked this up. Working on it now.
+
+          - Risk tier: \`${{ steps.risk.outputs.risk_tier }}\`
+          - Complexity: \`${{ steps.validate.outputs.complexity }}\`
+          - Branch: \`agent/gh-${{ github.event.issue.number }}\`
+
+          I'll open a draft PR when the code is ready."

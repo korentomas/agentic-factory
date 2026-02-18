@@ -105,6 +105,18 @@ curl -X POST https://api.clickup.com/api/v2/team/YOUR_TEAM_ID/webhook \
 
 Now tag any ClickUp ticket with `ai-agent` and watch it become a PR.
 
+### Using GitHub Issues instead of ClickUp
+
+No ClickUp? No orchestrator needed. Just use GitHub Issues:
+
+1. Copy the workflow files to your repo (step 2 above)
+2. Set `ANTHROPIC_API_KEY` and `GITHUB_APP_TOKEN` in GitHub Actions secrets
+3. Create an issue and add the `ai-agent` label
+
+That's it. The `agent-issue-trigger.yml` workflow dispatches issues through the same pipeline as ClickUp tickets. PRs auto-link back with `Closes #N`.
+
+**No orchestrator, no webhooks, no external services.** Pure GitHub-native.
+
 ---
 
 ## Architecture Overview
@@ -121,6 +133,7 @@ agent-factory/
 │       ├── codebase_scan.py # Weekly autonomous codebase audit
 │       └── weekly_summary.py# Monday Slack digest
 ├── .github/workflows/       # Copy these to your target repo
+│   ├── agent-issue-trigger.yml  # GitHub Issue → dispatch (no orchestrator)
 │   ├── agent-write.yml      # Claude writes code → draft PR
 │   ├── agent-review.yml     # Risk gate + review + spec audit
 │   └── agent-remediation.yml# Auto-fix loop (max 2 rounds)
@@ -191,6 +204,31 @@ Hard gates that run *inside* the agent loop and cannot be reasoned around:
 **Self-hosting (this repo):** Full control. Deploy the orchestrator to Cloud Run, configure your own GitHub App, bring your own secrets. Free beyond compute costs (~$0.10–0.50/PR in AI costs).
 
 **Managed (coming soon):** One-click install, no infra to manage. Sign up at [agentfactory.dev](https://agentfactory.dev) *(waitlist open)*.
+
+---
+
+## Dogfooding
+
+AgentFactory uses itself. This repo's own issues go through the same pipeline:
+
+1. Create an issue on this repo describing a bug or feature
+2. Add the `ai-agent` label
+3. AgentFactory writes the code, opens a PR, reviews it, and remediates findings
+4. A human (you) reviews and merges
+
+This is the fastest way to understand what AgentFactory does — watch it work on its own codebase.
+
+---
+
+## Trigger Sources
+
+| Source | Trigger | Orchestrator needed? | Setup |
+|--------|---------|---------------------|-------|
+| **GitHub Issues** | Add `ai-agent` label to an issue | No | Just workflow files + secrets |
+| **ClickUp** | Add `ai-agent` tag to a ticket | Yes | Deploy orchestrator + register webhook |
+| **Manual** | `gh api repos/.../dispatches` | No | Just workflow files + secrets |
+
+All sources produce the same `repository_dispatch` event with the same payload format. The downstream pipeline (write → review → remediate) is identical.
 
 ---
 

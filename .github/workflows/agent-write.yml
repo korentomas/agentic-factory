@@ -198,23 +198,34 @@ jobs:
           # Push any remaining changes
           git push origin "${{ steps.branch.outputs.branch }}" || true
 
+          TASK_ID="${{ steps.validate.outputs.task_id }}"
+          SOURCE="${{ github.event.client_payload.source }}"
+          ISSUE_NUM="${{ github.event.client_payload.issue_number }}"
+
+          # Build source link based on trigger type
+          if [ "$SOURCE" = "github-issue" ] && [ -n "$ISSUE_NUM" ]; then
+            SOURCE_LINE="**GitHub Issue:** #${ISSUE_NUM}"
+            CLOSES_LINE="Closes #${ISSUE_NUM}"
+          else
+            SOURCE_LINE="**ClickUp Task:** ${TASK_ID}"
+            CLOSES_LINE=""
+          fi
+
           PR_URL=$(gh pr create \
             --draft \
             --title "${{ github.event.client_payload.title }}" \
-            --body "$(cat <<'EOF'
-          ## Agent-Written PR
+            --body "## Agent-Written PR
 
-          **ClickUp Task:** cu-${{ steps.validate.outputs.task_id }}
+          ${SOURCE_LINE}
           **Correlation ID:** ${{ steps.validate.outputs.correlation_id }}
           **Risk Tier:** ${{ github.event.client_payload.risk_tier }}
+          ${CLOSES_LINE}
 
           This PR was written by AgentFactory. Review the changes carefully.
 
           - [ ] Code reviewed by human
           - [ ] Tests pass
-          - [ ] No anti-patterns from CLAUDE.md
-          EOF
-          )" \
+          - [ ] No anti-patterns from CLAUDE.md" \
             --base main \
             --head "${{ steps.branch.outputs.branch }}" \
             2>&1)
@@ -234,16 +245,21 @@ jobs:
           STATUS="${{ job.status }}"
           PR_URL="${{ steps.create_pr.outputs.pr_url }}"
 
-          curl --retry 3 --retry-delay 5 \
-            -X POST "${ORCHESTRATOR_URL}/callbacks/agent-complete" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
-            -d "{
-              \"clickup_task_id\": \"${{ steps.validate.outputs.task_id }}\",
-              \"correlation_id\": \"${{ steps.validate.outputs.correlation_id }}\",
-              \"run_id\": \"${{ github.run_id }}\",
-              \"branch\": \"${{ steps.branch.outputs.branch }}\",
-              \"pr_url\": \"${PR_URL}\",
-              \"status\": \"${STATUS}\"
-            }" \
-            --fail-with-body || echo "::warning::Callback to orchestrator failed"
+          if [ -n "$ORCHESTRATOR_URL" ]; then
+            curl --retry 3 --retry-delay 5 \
+              -X POST "${ORCHESTRATOR_URL}/callbacks/agent-complete" \
+              -H "Content-Type: application/json" \
+              -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
+              -d "{
+                \"clickup_task_id\": \"${{ steps.validate.outputs.task_id }}\",
+                \"correlation_id\": \"${{ steps.validate.outputs.correlation_id }}\",
+                \"run_id\": \"${{ github.run_id }}\",
+                \"branch\": \"${{ steps.branch.outputs.branch }}\",
+                \"pr_url\": \"${PR_URL}\",
+                \"status\": \"${STATUS}\"
+              }" \
+              --fail-with-body || echo "::warning::Callback to orchestrator failed"
+          else
+            echo "No ORCHESTRATOR_URL configured — skipping callback"
+            echo "Status: ${STATUS}, PR: ${PR_URL}"
+          fi
