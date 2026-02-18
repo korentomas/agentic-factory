@@ -87,7 +87,7 @@ exclude = ["tests/"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "--cov=apps --cov-report=term-missing --cov-fail-under=60"
+addopts = "--cov=apps --cov-report=term-missing --cov-fail-under=75"
 
 [tool.coverage.run]
 source = ["apps"]
