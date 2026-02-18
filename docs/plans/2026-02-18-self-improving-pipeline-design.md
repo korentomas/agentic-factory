@@ -254,14 +254,25 @@ For the managed version (agentfactory.dev):
 | **5** | Managed platform (website) | Weeks | All above |
 
 **Progress** (as of 2026-02-18):
-- [x] Auto-promote draft PRs (shipped, verified on PR #5)
-- [x] Cost tracking in PR body (shipped, NDJSON fix applied)
-- [x] Phase 1a: agent-triage.yml (shipped, tested with Issues #3 and #4)
-- [x] Phase 1b: Clarification comments + wait-for-reply (shipped, tested)
-- [x] Phase 2: Outcome logging — JSONL (shipped, first record logged for PR #5)
+- [x] Auto-promote draft PRs (shipped, verified on PRs #5, #7, #8)
+- [x] Cost tracking structure in PR body (NDJSON parsing, show_full_output)
+- [x] Phase 1a: agent-triage.yml (shipped, tested with Issues #3, #4, #6)
+- [x] Phase 1b: Clarification comments + wait-for-reply (shipped, tested on Issue #4)
+- [x] Phase 2: Outcome logging — JSONL (shipped, 3 records logged)
 - [x] Phase 3b: Pattern extraction job (shipped — `pattern_extraction.py` + 57 tests)
 - [x] Phase 3c: `.claude/rules/` auto-updates via weekly workflow
-- [x] Review findings captured in outcome log
+- [x] Review findings capture in outcome log (GitHub API for bot comments)
+- [x] Changed files tracking via GitHub PR files API
+- [x] Concurrency groups on agent-write and agent-review
+- [x] Remediation → Slack escalation + learned rules reading
+- [x] CLI entry point for pattern extraction (`agentfactory-extract`)
 - [ ] Phase 3a: SQLite learnings DB + MCP server (deferred — JSONL sufficient for now)
 - [ ] Phase 4: DB MCP servers in CI
 - [ ] Phase 5: Managed platform
+
+**Verified end-to-end flows:**
+1. Issue #3 (clear) → triage → dispatch → PR #5 → review (all pass) → auto-promote
+2. Issue #4 (unclear) → triage → clarification → reply → re-triage → dispatch → PR #8 → review (all pass, high risk)
+3. Issue #6 (clear) → triage → dispatch → PR #7 → review (all pass) → auto-promote
+4. Pattern extraction runs correctly with 3 outcomes (100% success rate)
+5. Outcome logging captures results after every review run
