@@ -154,18 +154,23 @@ agent-factory/
 │   │   ├── clickup.py       # HMAC-verified ClickUp webhook
 │   │   └── callbacks.py     # GitHub Actions result callbacks
 │   └── jobs/
-│       ├── codebase_scan.py # Weekly autonomous codebase audit
-│       └── weekly_summary.py# Monday Slack digest
+│       ├── codebase_scan.py       # Weekly autonomous codebase audit
+│       ├── weekly_summary.py      # Monday Slack digest
+│       └── pattern_extraction.py  # Extract patterns from outcomes
 ├── .github/workflows/       # Copy these to your target repo
 │   ├── agent-triage.yml     # Issue triage → clarify or dispatch
 │   ├── agent-write.yml      # Claude writes code → draft PR
 │   ├── agent-review.yml     # Risk gate + review + spec audit + outcome log
-│   └── agent-remediation.yml# Auto-fix loop (max 2 rounds)
+│   ├── agent-remediation.yml# Auto-fix loop (max 2 rounds)
+│   └── pattern-extraction.yml # Weekly pattern extraction → rules PR
 ├── data/
 │   └── agent-outcomes.jsonl # Structured log of every pipeline run
 ├── .claude/                 # Copy to your target repo
 │   ├── settings.json        # Hook configuration
-│   └── hooks/               # Bash hooks (safety, linting, tests)
+│   ├── hooks/               # Bash hooks (safety, linting, tests)
+│   └── rules/               # Learned patterns (auto-generated, human-reviewed)
+│       ├── patterns.md      # What works well
+│       └── anti-patterns.md # Common mistakes to avoid
 ├── scripts/
 │   └── risk_policy_gate.py  # Determines risk tier from changed files
 ├── risk-policy.json         # Risk tier rules — edit for your repo

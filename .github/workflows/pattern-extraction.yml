@@ -1,0 +1,94 @@
+name: Pattern Extraction
+
+# Weekly job: analyze agent outcomes and update learned patterns.
+# Runs every Sunday at 23:00 UTC, or manually via workflow_dispatch.
+# Creates a PR with proposed rule updates for human review.
+
+on:
+  schedule:
+    - cron: "0 23 * * 0"  # Sunday 23:00 UTC
+  workflow_dispatch:       # Manual trigger for testing
+
+jobs:
+  extract:
+    name: "Extract Patterns from Outcomes"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]" 2>/dev/null || pip install structlog
+
+      - name: Check for outcome data
+        id: check
+        run: |
+          if [ -f data/agent-outcomes.jsonl ] && [ -s data/agent-outcomes.jsonl ]; then
+            LINES=$(wc -l < data/agent-outcomes.jsonl)
+            echo "has_data=true" >> "$GITHUB_OUTPUT"
+            echo "outcome_count=${LINES}" >> "$GITHUB_OUTPUT"
+            echo "Found ${LINES} outcome records"
+          else
+            echo "has_data=false" >> "$GITHUB_OUTPUT"
+            echo "No outcome data found — skipping extraction"
+          fi
+
+      - name: Run pattern extraction
+        if: steps.check.outputs.has_data == 'true'
+        run: python -m apps.orchestrator.jobs.pattern_extraction
+
+      - name: Create PR with rule updates
+        if: steps.check.outputs.has_data == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # Check if rules files changed
+          git add .claude/rules/ 2>/dev/null || true
+
+          if git diff --staged --quiet; then
+            echo "No rule changes to propose"
+            exit 0
+          fi
+
+          BRANCH="chore/pattern-extraction-$(date +%Y%m%d)"
+
+          # Clean up stale branch
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+
+          git config user.name "AgentFactory Bot"
+          git config user.email "agent@agentfactory.dev"
+          git checkout -b "$BRANCH"
+          git commit -m "chore: update learned patterns from $(( ${{ steps.check.outputs.outcome_count }} )) pipeline runs"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "Update learned patterns ($(date +%Y-%m-%d))" \
+            --body "## Auto-Generated Pattern Update
+
+          Extracted from **${{ steps.check.outputs.outcome_count }}** agent pipeline runs.
+
+          This PR updates \`.claude/rules/patterns.md\` and \`.claude/rules/anti-patterns.md\`
+          with patterns discovered from reviewing agent outcomes.
+
+          **Review these changes carefully** — they will affect how future agents behave.
+
+          - [ ] Patterns are accurate and useful
+          - [ ] Anti-patterns reflect real issues, not noise
+          - [ ] No confidential information leaked into rules" \
+            --base main \
+            --head "$BRANCH" || echo "::warning::Failed to create PR"

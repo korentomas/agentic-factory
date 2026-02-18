@@ -433,6 +433,12 @@ jobs:
           CHANGED_FILES=$(git diff --name-only "origin/main...origin/${BRANCH}" 2>/dev/null \
             | jq -R -s -c 'split("\n") | map(select(. != ""))' || echo "[]")
 
+          # Extract review findings from PR comments (bot comments containing BLOCKING or SPEC-AUDIT)
+          REVIEW_FINDINGS=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.user.login == "agentfactory-bot[bot]") | .body
+                   | capture("(?:BLOCKING|\\[SPEC-AUDIT\\] BLOCKING|\\[SPEC-AUDIT\\] MISSING):? (?P<finding>[^\n]+)"; "g")
+                   | .finding] | flatten | unique' 2>/dev/null || echo "[]")
+
           # Build the outcome record
           RECORD=$(jq -n \
             --arg outcome "$OUTCOME" \
@@ -447,6 +453,7 @@ jobs:
             --arg run_id "${{ github.run_id }}" \
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --argjson files_changed "$CHANGED_FILES" \
+            --argjson review_findings "${REVIEW_FINDINGS:-[]}" \
             '{
               outcome: $outcome,
               pr_url: $pr_url,
@@ -460,6 +467,7 @@ jobs:
                 spec_audit: $audit
               },
               files_changed: $files_changed,
+              review_findings: $review_findings,
               run_id: $run_id,
               timestamp: $timestamp
             }')

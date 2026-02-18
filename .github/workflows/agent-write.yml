@@ -215,6 +215,8 @@ jobs:
 
             Read CLAUDE.md and ARCHITECTURE.md before writing any code.
             If PLANS.md exists, follow it — you wrote it in the planning step.
+            If .claude/rules/patterns.md exists, read it for learned patterns.
+            If .claude/rules/anti-patterns.md exists, read it for known pitfalls.
 
             Task title: ${{ github.event.client_payload.title }}
 

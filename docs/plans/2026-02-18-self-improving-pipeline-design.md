@@ -253,8 +253,15 @@ For the managed version (agentfactory.dev):
 | **4** | DB MCP servers in CI | 1 day | None |
 | **5** | Managed platform (website) | Weeks | All above |
 
-**Immediate next steps** (this session):
-- [x] ~~Auto-promote draft PRs~~ (shipped)
-- [x] ~~Cost tracking in PR body~~ (shipped)
-- [ ] Implement Phase 1a: agent-triage.yml
-- [ ] Implement Phase 2: outcome logging
+**Progress** (as of 2026-02-18):
+- [x] Auto-promote draft PRs (shipped, verified on PR #5)
+- [x] Cost tracking in PR body (shipped, NDJSON fix applied)
+- [x] Phase 1a: agent-triage.yml (shipped, tested with Issues #3 and #4)
+- [x] Phase 1b: Clarification comments + wait-for-reply (shipped, tested)
+- [x] Phase 2: Outcome logging — JSONL (shipped, first record logged for PR #5)
+- [x] Phase 3b: Pattern extraction job (shipped — `pattern_extraction.py` + 57 tests)
+- [x] Phase 3c: `.claude/rules/` auto-updates via weekly workflow
+- [x] Review findings captured in outcome log
+- [ ] Phase 3a: SQLite learnings DB + MCP server (deferred — JSONL sufficient for now)
+- [ ] Phase 4: DB MCP servers in CI
+- [ ] Phase 5: Managed platform
