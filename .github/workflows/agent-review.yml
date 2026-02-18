@@ -190,6 +190,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           github_token: ${{ steps.app-token.outputs.token }}
+          allowed_bots: "agentfactory-bot[bot]"
           prompt: |
             Review this PR as a senior engineer familiar with this codebase.
 
@@ -259,6 +260,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           github_token: ${{ steps.app-token.outputs.token }}
+          allowed_bots: "agentfactory-bot[bot]"
           prompt: |
             SPEC COVERAGE AUDIT — do NOT read any implementation files.
 

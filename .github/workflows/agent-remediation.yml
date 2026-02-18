@@ -246,6 +246,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           github_token: ${{ steps.app-token.outputs.token }}
+          allowed_bots: "agentfactory-bot[bot]"
           prompt: |
             You are fixing code review findings on this PR. This is remediation round ${{ needs.check-trigger.outputs.round }} of 2.
 

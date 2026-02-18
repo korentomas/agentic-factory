@@ -128,6 +128,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
+          allowed_bots: "agentfactory-bot[bot]"
           prompt: |
             Read CLAUDE.md and ARCHITECTURE.md first.
 
@@ -179,6 +180,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
+          allowed_bots: "agentfactory-bot[bot]"
           prompt: |
             You are working on a development task from ClickUp.
 
