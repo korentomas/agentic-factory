@@ -137,7 +137,7 @@ No ClickUp? No orchestrator needed. Just use GitHub Issues:
 2. Set `APP_ID`, `APP_PRIVATE_KEY`, and `ANTHROPIC_API_KEY` in GitHub Actions secrets
 3. Create an issue and add the `ai-agent` label
 
-That's it. The `agent-issue-trigger.yml` workflow dispatches issues through the same pipeline as ClickUp tickets. PRs auto-link back with `Closes #N`.
+That's it. The `agent-triage.yml` workflow evaluates the issue, asks clarifying questions if needed, then dispatches through the same pipeline as ClickUp tickets. PRs auto-link back with `Closes #N`.
 
 **No orchestrator, no webhooks, no external services.** Pure GitHub-native.
 
@@ -227,6 +227,22 @@ Hard gates that run *inside* the agent loop and cannot be reasoned around:
 | `enforce-tenant-safety.sh` | PreToolUse(Bash) | Blocks DROP TABLE, raw DB writes without tenant scope |
 | `run-linter.sh` | PostToolUse(Edit/Write) | Runs ruff + mypy on changed files (async) |
 | `require-tests-pass.sh` | Stop | Prevents agent from stopping if tests fail (exit 2) |
+
+---
+
+## Self-Improving Pipeline
+
+AgentFactory gets better over time. Every pipeline run is logged, and patterns are extracted weekly:
+
+1. **Outcome logging** — Every review (pass or fail) is recorded in `data/agent-outcomes.jsonl` with the result, risk tier, files changed, and review findings.
+
+2. **Pattern extraction** — A weekly job analyzes outcomes and proposes updates to `.claude/rules/patterns.md` (what works) and `.claude/rules/anti-patterns.md` (recurring mistakes). Updates are proposed as PRs for human review.
+
+3. **Agent reads rules** — Before writing code, the agent reads the learned patterns and anti-patterns. This means the agent learns from its own successes and failures across all tickets.
+
+4. **Cost tracking** — Every agent run captures cost, turns, and duration. These are displayed in the PR body so you can track spend per ticket.
+
+The separation is intentional: `CLAUDE.md` is the constitution (human-authored rules that never drift), `.claude/rules/` is curated from data (auto-generated, human-reviewed before merge).
 
 ---
 
