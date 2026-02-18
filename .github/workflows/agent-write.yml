@@ -80,7 +80,7 @@ jobs:
           # MUST use GitHub App token — not GITHUB_TOKEN.
           # Commits made with GITHUB_TOKEN do NOT trigger CI workflows.
           # This is a hard GitHub policy to prevent infinite loops.
-          token: ${{ secrets.GITHUB_APP_TOKEN }}
+          token: ${{ secrets.APP_TOKEN }}
           fetch-depth: 0
 
       - name: Create agent branch
@@ -119,7 +119,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          github_token: ${{ secrets.APP_TOKEN }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           prompt: |
             Read CLAUDE.md and ARCHITECTURE.md first.
@@ -170,7 +170,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          github_token: ${{ secrets.APP_TOKEN }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           prompt: |
             You are working on a development task from ClickUp.
@@ -201,7 +201,7 @@ jobs:
       - name: Create pull request
         id: create_pr
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.APP_TOKEN }}
         run: |
           # Push any remaining changes
           git push origin "${{ steps.branch.outputs.branch }}" || true

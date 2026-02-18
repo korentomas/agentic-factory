@@ -66,7 +66,7 @@ jobs:
       - name: Post risk tier comment
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.APP_TOKEN }}
         run: |
           TIER="${{ steps.gate.outputs.tier }}"
           TIER_EMOJI="🟡"
@@ -175,7 +175,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
-          github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          github_token: ${{ secrets.APP_TOKEN }}
           prompt: |
             Review this PR as a senior engineer familiar with this codebase.
 
@@ -224,7 +224,7 @@ jobs:
       - name: Extract PR metadata
         id: meta
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.APP_TOKEN }}
         run: |
           # Get the PR body (contains ClickUp task ID and description)
           PR_BODY=$(gh pr view "${{ github.event.pull_request.number }}" --json body -q .body)
@@ -237,7 +237,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
-          github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          github_token: ${{ secrets.APP_TOKEN }}
           prompt: |
             SPEC COVERAGE AUDIT — do NOT read any implementation files.
 
@@ -322,7 +322,7 @@ jobs:
       - name: PR comment — review clean
         if: steps.status.outputs.outcome == 'clean'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.APP_TOKEN }}
         run: |
           TIER="${{ needs.risk-gate.outputs.tier }}"
           TIER_EMOJI="🟡"

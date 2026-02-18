@@ -21,7 +21,7 @@ jobs:
       - name: Check conditions
         id: check
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.APP_TOKEN }}
         run: |
           # Only act on agent/* branches
           BRANCH="${{ github.event.pull_request.head.ref }}"
@@ -82,7 +82,7 @@ jobs:
     steps:
       - name: Post PR comment
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.APP_TOKEN }}
         run: |
           gh pr comment "${{ needs.check-trigger.outputs.pr_number }}" \
             --body "🛑 **Auto-remediation limit reached (2 rounds)**
@@ -168,7 +168,7 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_APP_TOKEN }}
+          token: ${{ secrets.APP_TOKEN }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
@@ -189,7 +189,7 @@ jobs:
       - name: Extract review findings
         id: findings
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.APP_TOKEN }}
         run: |
           PR_NUMBER="${{ needs.check-trigger.outputs.pr_number }}"
 
@@ -224,7 +224,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
-          github_token: ${{ secrets.GITHUB_APP_TOKEN }}
+          github_token: ${{ secrets.APP_TOKEN }}
           prompt: |
             You are fixing code review findings on this PR. This is remediation round ${{ needs.check-trigger.outputs.round }} of 2.
 
@@ -260,7 +260,7 @@ jobs:
 
       - name: Label PR with remediation round
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.APP_TOKEN }}
         run: |
           PR_NUMBER="${{ needs.check-trigger.outputs.pr_number }}"
           ROUND="${{ needs.check-trigger.outputs.round }}"
@@ -275,7 +275,7 @@ jobs:
 
       - name: Post remediation comment
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.APP_TOKEN }}
         run: |
           PR_NUMBER="${{ needs.check-trigger.outputs.pr_number }}"
           ROUND="${{ needs.check-trigger.outputs.round }}"
