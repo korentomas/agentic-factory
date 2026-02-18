@@ -12,3 +12,6 @@ build/
 .coverage
 htmlcov/
 coverage.xml
+
+# Learning database (runtime only, not committed)
+data/learnings.db

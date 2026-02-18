@@ -1,0 +1,321 @@
+name: Agent Triage
+
+# Replaces direct dispatch with an intelligent triage step.
+# Reads the issue + codebase context, evaluates clarity, and either:
+#   1. Posts a specification comment and dispatches to agent-write
+#   2. Posts a clarifying question and waits for the author to respond
+#
+# Also triggers on issue comments — so when someone answers a clarification
+# question, triage re-runs with the enriched context.
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  triage:
+    name: "Triage: Evaluate Issue"
+    # Run when:
+    # 1. Issue is labeled "ai-agent" (new ticket), OR
+    # 2. A comment is posted on an issue with "needs-clarification" label
+    #    (someone answered a clarification question)
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'ai-agent') ||
+      (github.event_name == 'issue_comment' &&
+       contains(github.event.issue.labels.*.name, 'needs-clarification') &&
+       github.event.comment.user.login != 'agentfactory-bot[bot]')
+    runs-on: ubuntu-latest
+    outputs:
+      is_clear: ${{ steps.triage.outputs.is_clear }}
+      task_id: ${{ steps.meta.outputs.task_id }}
+      complexity: ${{ steps.meta.outputs.complexity }}
+      risk_tier: ${{ steps.meta.outputs.risk_tier }}
+      issue_number: ${{ steps.meta.outputs.issue_number }}
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Extract issue metadata
+        id: meta
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # Get the issue number regardless of trigger type
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+          else
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+          fi
+          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "task_id=gh-${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+
+          # Get full issue data including all comments
+          ISSUE_TITLE=$(gh issue view "${ISSUE_NUMBER}" --json title -q .title)
+          ISSUE_BODY=$(gh issue view "${ISSUE_NUMBER}" --json body -q .body)
+          echo "title=${ISSUE_TITLE}" >> "$GITHUB_OUTPUT"
+
+          # Determine complexity from body length + structure
+          BODY_LENGTH=${#ISSUE_BODY}
+          if [ "$BODY_LENGTH" -gt 500 ]; then
+            echo "complexity=high" >> "$GITHUB_OUTPUT"
+          else
+            echo "complexity=standard" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Determine risk tier from content
+          COMBINED="${ISSUE_TITLE} ${ISSUE_BODY}"
+          COMBINED_LOWER=$(echo "$COMBINED" | tr '[:upper:]' '[:lower:]')
+
+          if echo "$COMBINED_LOWER" | grep -qE "auth|tenant|security|migration|schema|admin|password|token|credential|secret"; then
+            echo "risk_tier=high" >> "$GITHUB_OUTPUT"
+          elif echo "$COMBINED_LOWER" | grep -qE "api|endpoint|route|service|webhook|billing"; then
+            echo "risk_tier=medium" >> "$GITHUB_OUTPUT"
+          else
+            echo "risk_tier=low" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Gather all conversation context (issue body + comments)
+          COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '[.[] | select(.user.login != "agentfactory-bot[bot]") | .body] | join("\n\n---\n\n")' \
+            2>/dev/null || echo "")
+
+          # Write full context to a file for Claude to read
+          {
+            echo "# Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
+            echo ""
+            echo "## Description"
+            echo "${ISSUE_BODY}"
+            if [ -n "$COMMENTS" ]; then
+              echo ""
+              echo "## Additional Context (from comments)"
+              echo "${COMMENTS}"
+            fi
+          } > /tmp/issue_context.md
+
+      - name: Triage with Claude
+        id: triage
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          settings: ${{ secrets.CLAUDE_SETTINGS }}
+          allowed_bots: "agentfactory-bot[bot]"
+          prompt: |
+            You are triaging a GitHub issue before an AI coding agent works on it.
+            Your job: determine if the issue is clear enough to implement WITHOUT
+            any ambiguity.
+
+            Read the issue context at /tmp/issue_context.md.
+            Read CLAUDE.md and ARCHITECTURE.md to understand the codebase.
+
+            Evaluate the issue against these criteria:
+            1. Is the desired behavior clearly described?
+            2. Are acceptance criteria specified or inferable?
+            3. Are there any ambiguous requirements where multiple interpretations exist?
+            4. Can you identify which files need to change?
+
+            Write your analysis to /tmp/triage_result.json in this EXACT format:
+            {
+              "is_clear": true or false,
+              "confidence": 0.0 to 1.0,
+              "specification": {
+                "current_state": ["bullet points describing current behavior"],
+                "desired_state": ["bullet points describing desired behavior"],
+                "files_to_change": ["list of file paths"],
+                "acceptance_criteria": ["list of testable criteria"]
+              },
+              "clarification_needed": null or {
+                "question": "ONE specific question to ask",
+                "default_assumption": "what you would assume if no answer",
+                "why": "why this matters for implementation"
+              }
+            }
+
+            Rules:
+            - If confidence >= 0.8 and no critical ambiguity: is_clear = true
+            - If ANY requirement has multiple valid interpretations: is_clear = false
+            - Ask exactly ONE question — the most important one
+            - Always provide a default_assumption so the author can just confirm
+            - The specification should be concrete enough to implement from
+          claude_args: "--max-turns 8 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Glob,Grep,Bash'"
+
+      - name: Parse triage result
+        id: parse
+        run: |
+          if [ ! -f /tmp/triage_result.json ]; then
+            echo "::warning::Triage did not produce result file — defaulting to clear"
+            echo "is_clear=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          IS_CLEAR=$(jq -r '.is_clear' /tmp/triage_result.json 2>/dev/null || echo "true")
+          CONFIDENCE=$(jq -r '.confidence // 0' /tmp/triage_result.json 2>/dev/null || echo "0")
+          echo "is_clear=${IS_CLEAR}" >> "$GITHUB_OUTPUT"
+          echo "confidence=${CONFIDENCE}" >> "$GITHUB_OUTPUT"
+
+          # Extract specification for the comment
+          SPEC=$(jq -r '
+            "### Current State\n" +
+            (.specification.current_state // [] | map("- " + .) | join("\n")) +
+            "\n\n### Desired State\n" +
+            (.specification.desired_state // [] | map("- " + .) | join("\n")) +
+            "\n\n### Files to Change\n" +
+            (.specification.files_to_change // [] | map("- `" + . + "`") | join("\n")) +
+            "\n\n### Acceptance Criteria\n" +
+            (.specification.acceptance_criteria // [] | map("- [ ] " + .) | join("\n"))
+          ' /tmp/triage_result.json 2>/dev/null || echo "Could not parse specification")
+          # Write spec to file to avoid shell escaping issues
+          echo "$SPEC" > /tmp/spec_comment.md
+
+          # Extract clarification question if needed
+          if [ "$IS_CLEAR" = "false" ]; then
+            QUESTION=$(jq -r '.clarification_needed.question // "Could you provide more details?"' /tmp/triage_result.json)
+            DEFAULT=$(jq -r '.clarification_needed.default_assumption // "N/A"' /tmp/triage_result.json)
+            WHY=$(jq -r '.clarification_needed.why // ""' /tmp/triage_result.json)
+            echo "question=${QUESTION}" >> "$GITHUB_OUTPUT"
+            echo "default=${DEFAULT}" >> "$GITHUB_OUTPUT"
+            echo "why=${WHY}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Clear: post spec and dispatch ────────────────────────────────────────────
+  dispatch:
+    name: "Dispatch: Issue → Agent"
+    needs: triage
+    if: needs.triage.outputs.is_clear == 'true' || needs.triage.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Remove clarification label if present
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/${{ needs.triage.outputs.issue_number }}/labels/needs-clarification" \
+            -X DELETE 2>/dev/null || true
+
+      - name: Post specification comment
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ISSUE_NUMBER="${{ needs.triage.outputs.issue_number }}"
+          RISK="${{ needs.triage.outputs.risk_tier }}"
+          COMPLEXITY="${{ needs.triage.outputs.complexity }}"
+
+          gh issue comment "${ISSUE_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --body "🤖 **AgentFactory** picked this up. Working on it now.
+
+          - Risk tier: \`${RISK}\`
+          - Complexity: \`${COMPLEXITY}\`
+          - Branch: \`agent/cu-gh-${ISSUE_NUMBER}\`
+
+          I'll open a draft PR when the code is ready."
+
+      - name: Dispatch to agent-write
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ needs.triage.outputs.issue_number }}
+        run: |
+          # Get issue body for the dispatch payload
+          ISSUE_BODY=$(gh issue view "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --json body -q .body)
+          ISSUE_TITLE=$(gh issue view "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --json title -q .title)
+
+          # Include any clarification comments as additional context
+          COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '[.[] | select(.user.login != "agentfactory-bot[bot]") | .body] | join("\n\n---\n\n")' \
+            2>/dev/null || echo "")
+
+          if [ -n "$COMMENTS" ]; then
+            FULL_DESCRIPTION="${ISSUE_BODY}
+
+          ---
+          ## Additional Context (from discussion)
+          ${COMMENTS}"
+          else
+            FULL_DESCRIPTION="${ISSUE_BODY}"
+          fi
+
+          CORRELATION_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+
+          gh api "repos/${{ github.repository }}/dispatches" \
+            --method POST \
+            -f event_type=agent-task \
+            -f "client_payload[clickup_task_id]=${{ needs.triage.outputs.task_id }}" \
+            -f "client_payload[title]=${ISSUE_TITLE}" \
+            -f "client_payload[description]=${FULL_DESCRIPTION}" \
+            -f "client_payload[correlation_id]=${CORRELATION_ID}" \
+            -f "client_payload[risk_tier]=${{ needs.triage.outputs.risk_tier }}" \
+            -f "client_payload[complexity]=${{ needs.triage.outputs.complexity }}" \
+            -f "client_payload[source]=github-issue" \
+            -f "client_payload[issue_number]=${ISSUE_NUMBER}"
+
+          echo "Dispatched issue #${ISSUE_NUMBER} to agent-write"
+
+  # ── Unclear: ask for clarification ───────────────────────────────────────────
+  clarify:
+    name: "Clarify: Ask Question"
+    needs: triage
+    if: needs.triage.outputs.is_clear == 'false' && needs.triage.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Post clarification question
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ISSUE_NUMBER="${{ needs.triage.outputs.issue_number }}"
+
+          # Ensure labels exist
+          gh label create "needs-clarification" \
+            --color "FBCA04" \
+            --description "Agent needs more info before implementing" \
+            --repo "${{ github.repository }}" \
+            2>/dev/null || true
+
+          # Add needs-clarification, remove ai-agent (prevents re-trigger loop)
+          gh issue edit "${ISSUE_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --add-label "needs-clarification" \
+            --remove-label "ai-agent"
+
+          # Post the question
+          QUESTION="${{ needs.triage.outputs.question }}"
+          DEFAULT="${{ needs.triage.outputs.default }}"
+          WHY="${{ needs.triage.outputs.why }}"
+
+          gh issue comment "${ISSUE_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --body "🤔 **AgentFactory** needs a quick clarification before starting.
+
+          **Question:** ${QUESTION}
+
+          **My default assumption:** ${DEFAULT}
+
+          ${WHY:+**Why this matters:** ${WHY}}
+
+          ---
+          *Reply to this comment to clarify, then re-add the \`ai-agent\` label. Or if my assumption is correct, just re-add the label and I'll proceed with it.*"

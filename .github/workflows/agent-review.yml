@@ -311,6 +311,11 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: main
+
       - name: Determine overall status
         id: status
         run: |
@@ -408,4 +413,66 @@ jobs:
               --fail-with-body || echo "::warning::Orchestrator callback failed"
           else
             echo "No ORCHESTRATOR_URL configured — skipping callback"
+          fi
+
+      # ── Outcome logging ─────────────────────────────────────────────────────
+      # Append a structured record of this pipeline run to data/agent-outcomes.jsonl.
+      # This is the foundation for self-improvement: we record what happened
+      # so we can later extract patterns from successes and failures.
+      - name: Log pipeline outcome
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          OUTCOME="${{ steps.status.outputs.outcome }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          BRANCH="${{ github.head_ref }}"
+          TIER="${{ needs.risk-gate.outputs.tier }}"
+
+          # Get changed files
+          CHANGED_FILES=$(git diff --name-only "origin/main...origin/${BRANCH}" 2>/dev/null \
+            | jq -R -s -c 'split("\n") | map(select(. != ""))' || echo "[]")
+
+          # Build the outcome record
+          RECORD=$(jq -n \
+            --arg outcome "$OUTCOME" \
+            --arg pr_url "${{ github.event.pull_request.html_url }}" \
+            --argjson pr_number "$PR_NUMBER" \
+            --arg branch "$BRANCH" \
+            --arg risk_tier "${TIER:-unknown}" \
+            --arg gate "${{ needs.risk-gate.result }}" \
+            --arg tests "${{ needs.tests.result }}" \
+            --arg review "${{ needs.claude-review.result }}" \
+            --arg audit "${{ needs.spec-audit.result }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson files_changed "$CHANGED_FILES" \
+            '{
+              outcome: $outcome,
+              pr_url: $pr_url,
+              pr_number: $pr_number,
+              branch: $branch,
+              risk_tier: $risk_tier,
+              checks: {
+                gate: $gate,
+                tests: $tests,
+                review: $review,
+                spec_audit: $audit
+              },
+              files_changed: $files_changed,
+              run_id: $run_id,
+              timestamp: $timestamp
+            }')
+
+          # Append to outcome log
+          mkdir -p data
+          echo "$RECORD" >> data/agent-outcomes.jsonl
+
+          # Commit the log update to main
+          git config user.name "AgentFactory Bot"
+          git config user.email "agent@agentfactory.dev"
+          git add data/agent-outcomes.jsonl
+          if ! git diff --staged --quiet; then
+            git commit -m "data: log review outcome for PR #${PR_NUMBER} [${OUTCOME}]"
+            git push origin main || echo "::warning::Failed to push outcome log"
           fi

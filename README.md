@@ -11,36 +11,42 @@ Drop a ticket. Come back to a PR.
 ## How It Works
 
 ```
-  You add tag "ai-agent" to a ClickUp ticket
+  GitHub Issue labeled "ai-agent"
+  (or ClickUp ticket tagged "ai-agent")
               │
               ▼
   ┌─────────────────────────┐
-  │  Agent Orchestrator     │  Cloud Run — receives webhook,
-  │  (this repo)            │  parses ticket, fires GitHub dispatch
+  │  agent-triage.yml       │  Claude Opus evaluates clarity.
+  │                         │  Clear → dispatch. Unclear → ask question.
   └────────────┬────────────┘
-               │  POST /repos/.../dispatches
-               ▼
-  ┌─────────────────────────┐
-  │  agent-write.yml        │  GitHub Actions — Claude Sonnet writes
-  │  (target repo)          │  code, creates draft PR, posts callback
-  └────────────┬────────────┘
-               │  PR opened on branch agent/*
-               ▼
-  ┌─────────────────────────┐
-  │  agent-review.yml       │  Risk gate → tests → Claude Opus review
-  │  (target repo)          │  + spec coverage audit
-  └────────────┬────────────┘
-               │
+               │  Is the issue clear?
       ┌────────┴────────┐
       │                 │
-   FINDINGS           CLEAN
+   UNCLEAR            CLEAR
       │                 │
       ▼                 ▼
-  agent-             Orchestrator posts
-  remediation        ClickUp comment +
-  .yml               Slack notification
-  (max 2 rounds,
-   then escalate)
+  Post question     ┌─────────────────────────┐
+  on issue,         │  agent-write.yml        │  Claude Sonnet writes
+  wait for          │                         │  code, creates draft PR
+  author reply      └────────────┬────────────┘
+                                 │  PR opened on branch agent/*
+                                 ▼
+                    ┌─────────────────────────┐
+                    │  agent-review.yml       │  Risk gate → tests →
+                    │                         │  Claude Opus review +
+                    │                         │  spec audit + outcome log
+                    └────────────┬────────────┘
+                                 │
+                        ┌────────┴────────┐
+                        │                 │
+                     FINDINGS           CLEAN
+                        │                 │
+                        ▼                 ▼
+                    agent-            PR marked ready
+                    remediation       for review +
+                    .yml              outcome logged
+                    (max 2 rounds,
+                     then escalate)
 ```
 
 ---
@@ -151,10 +157,12 @@ agent-factory/
 │       ├── codebase_scan.py # Weekly autonomous codebase audit
 │       └── weekly_summary.py# Monday Slack digest
 ├── .github/workflows/       # Copy these to your target repo
-│   ├── agent-issue-trigger.yml  # GitHub Issue → dispatch (no orchestrator)
+│   ├── agent-triage.yml     # Issue triage → clarify or dispatch
 │   ├── agent-write.yml      # Claude writes code → draft PR
-│   ├── agent-review.yml     # Risk gate + review + spec audit
+│   ├── agent-review.yml     # Risk gate + review + spec audit + outcome log
 │   └── agent-remediation.yml# Auto-fix loop (max 2 rounds)
+├── data/
+│   └── agent-outcomes.jsonl # Structured log of every pipeline run
 ├── .claude/                 # Copy to your target repo
 │   ├── settings.json        # Hook configuration
 │   └── hooks/               # Bash hooks (safety, linting, tests)
