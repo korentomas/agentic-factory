@@ -330,6 +330,14 @@ jobs:
             echo "outcome=clean" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Mark PR ready for review
+        if: steps.status.outputs.outcome == 'clean'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh pr ready "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" || echo "::warning::Failed to mark PR as ready"
+
       - name: Callback — review clean
         if: steps.status.outputs.outcome == 'clean'
         env:

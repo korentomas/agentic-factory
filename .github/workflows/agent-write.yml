@@ -170,6 +170,21 @@ jobs:
             ${{ github.event.client_payload.description }}
           claude_args: "--max-turns 10 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }}"
 
+      - name: Capture plan costs
+        if: ${{ github.event.client_payload.complexity == 'high' }}
+        id: plan_cost
+        run: |
+          if [ -f /home/runner/work/_temp/claude-execution-output.json ]; then
+            COST=$(jq -r '.total_cost_usd // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
+            TURNS=$(jq -r '.num_turns // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
+            DURATION=$(jq -r '.duration_ms // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
+          else
+            COST="0"; TURNS="0"; DURATION="0"
+          fi
+          echo "cost=$COST" >> "$GITHUB_OUTPUT"
+          echo "turns=$TURNS" >> "$GITHUB_OUTPUT"
+          echo "duration=$DURATION" >> "$GITHUB_OUTPUT"
+
       - name: Commit ExecPlan
         if: ${{ github.event.client_payload.complexity == 'high' }}
         run: |
@@ -219,6 +234,20 @@ jobs:
             - REDIS_URL=redis://localhost:6379
           claude_args: "--max-turns 40 --model ${{ vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
 
+      - name: Capture write costs
+        id: write_cost
+        run: |
+          if [ -f /home/runner/work/_temp/claude-execution-output.json ]; then
+            COST=$(jq -r '.total_cost_usd // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
+            TURNS=$(jq -r '.num_turns // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
+            DURATION=$(jq -r '.duration_ms // 0' /home/runner/work/_temp/claude-execution-output.json 2>/dev/null || echo "0")
+          else
+            COST="0"; TURNS="0"; DURATION="0"
+          fi
+          echo "cost=$COST" >> "$GITHUB_OUTPUT"
+          echo "turns=$TURNS" >> "$GITHUB_OUTPUT"
+          echo "duration=$DURATION" >> "$GITHUB_OUTPUT"
+
       - name: Commit agent changes
         run: |
           git add -A
@@ -259,6 +288,25 @@ jobs:
             CLOSES_LINE=""
           fi
 
+          # Compute agent cost stats
+          PLAN_COST="${{ steps.plan_cost.outputs.cost }}"
+          PLAN_COST="${PLAN_COST:-0}"
+          PLAN_TURNS="${{ steps.plan_cost.outputs.turns }}"
+          PLAN_TURNS="${PLAN_TURNS:-0}"
+          PLAN_DURATION_MS="${{ steps.plan_cost.outputs.duration }}"
+          PLAN_DURATION_MS="${PLAN_DURATION_MS:-0}"
+          PLAN_DURATION_S=$(echo "scale=1; ${PLAN_DURATION_MS} / 1000" | bc 2>/dev/null || echo "0")
+
+          WRITE_COST="${{ steps.write_cost.outputs.cost }}"
+          WRITE_COST="${WRITE_COST:-0}"
+          WRITE_TURNS="${{ steps.write_cost.outputs.turns }}"
+          WRITE_TURNS="${WRITE_TURNS:-0}"
+          WRITE_DURATION_MS="${{ steps.write_cost.outputs.duration }}"
+          WRITE_DURATION_MS="${WRITE_DURATION_MS:-0}"
+          WRITE_DURATION_S=$(echo "scale=1; ${WRITE_DURATION_MS} / 1000" | bc 2>/dev/null || echo "0")
+
+          TOTAL_COST=$(echo "${PLAN_COST} + ${WRITE_COST}" | bc 2>/dev/null || echo "0")
+
           PR_URL=$(gh pr create \
             --draft \
             --title "${{ github.event.client_payload.title }}" \
@@ -273,7 +321,14 @@ jobs:
 
           - [ ] Code reviewed by human
           - [ ] Tests pass
-          - [ ] No anti-patterns from CLAUDE.md" \
+          - [ ] No anti-patterns from CLAUDE.md
+
+          ---
+          📊 **Agent Stats** (total: \$${TOTAL_COST})
+          | Step | Cost | Turns | Duration |
+          |------|------|-------|----------|
+          | Plan | \$${PLAN_COST} | ${PLAN_TURNS} | ${PLAN_DURATION_S}s |
+          | Write | \$${WRITE_COST} | ${WRITE_TURNS} | ${WRITE_DURATION_S}s |" \
             --base main \
             --head "${{ steps.branch.outputs.branch }}" \
             2>&1)
