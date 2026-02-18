@@ -18,13 +18,14 @@ from fastapi.testclient import TestClient
 
 
 def test_health_returns_200_with_service_info(client: TestClient) -> None:
-    """GET /health returns 200 with status and service name."""
+    """GET /health returns 200 with status, service name, and version."""
     response = client.get("/health")
 
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
     assert body["service"] == "agent-factory-orchestrator"
+    assert body["version"] == "0.1.0"
 
 
 # ── 404 handler ──────────────────────────────────────────────────────────────
