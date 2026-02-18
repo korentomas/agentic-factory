@@ -208,3 +208,4 @@ PRs welcome. The codebase is intentionally small (~400 lines of Python). Key con
 - More hook examples for common frameworks (Django, Rails, Express)
 - Neon Database branching integration for per-run Postgres isolation
 - E2B sandbox integration for higher-isolation agent runs
+# agentic-factory
