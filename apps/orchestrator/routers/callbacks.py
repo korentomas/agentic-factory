@@ -23,10 +23,14 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from apps.orchestrator import metrics as _metrics
+from apps.orchestrator.error_router import ErrorContext, ErrorRouter
+from apps.orchestrator.issue_creator import IssueCreator
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
+_issue_creator = IssueCreator()
+_error_router = ErrorRouter(issue_creator=_issue_creator)
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 def _get_env(key: str, default: str = "") -> str:
@@ -142,6 +146,20 @@ async def agent_complete(
                 f"You may want to retry by removing and re-adding the `ai-agent` tag.",
             )
 
+        # Create GitHub issue for pipeline failure
+        try:
+            await _error_router.handle(
+                RuntimeError(f"Agent write {payload.status}: run {payload.run_id}"),
+                ErrorContext(
+                    component="ci",
+                    task_id=payload.clickup_task_id,
+                    execution_path="ci",
+                    stage="write",
+                ),
+            )
+        except Exception as exc:
+            log.warning("error_router.failed", error=str(exc))
+
     elif payload.status == "success":
         log.info("agent_write_succeeded", pr_url=payload.pr_url)
         # Review workflow fires automatically on PR open and will send the
@@ -256,6 +274,21 @@ async def blocked(
 
     if task_id:
         await _post_clickup_comment(task_id, clickup_comment)
+
+    if is_escalation:
+        # Create GitHub issue for escalation
+        try:
+            await _error_router.handle(
+                RuntimeError(f"PR blocked — escalation: {payload.reason}"),
+                ErrorContext(
+                    component="ci",
+                    task_id=task_id or "",
+                    execution_path="ci",
+                    stage="review",
+                ),
+            )
+        except Exception as exc:
+            log.warning("error_router.failed", error=str(exc))
 
     return {"ok": True}
 
