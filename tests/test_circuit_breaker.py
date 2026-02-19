@@ -2,8 +2,6 @@
 
 import time
 
-import pytest
-
 from apps.runner.circuit_breaker import CircuitBreaker, CircuitOpenError
 
 

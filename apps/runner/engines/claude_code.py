@@ -15,6 +15,7 @@ import structlog
 
 from apps.runner.engines.subprocess_util import run_engine_subprocess, tail
 from apps.runner.models import RunnerResult, RunnerTask
+from apps.runner.sandbox import SandboxConfig, build_docker_cmd
 
 logger = structlog.get_logger()
 
@@ -58,10 +59,14 @@ class ClaudeCodeAdapter:
         *,
         cancel_event: asyncio.Event | None = None,
     ) -> RunnerResult:
-        """Execute task via ``claude --print --output-format json``."""
+        """Execute task via ``claude --print --output-format json``.
+
+        When ``task.sandbox_mode`` is True, the command is wrapped in a
+        Docker container using ``build_docker_cmd`` for isolated execution.
+        """
         model = task.model or DEFAULT_MODEL
 
-        cmd = [
+        cmd: list[str] = [
             "claude",
             "--print",
             "--model", model,
@@ -86,6 +91,20 @@ class ClaudeCodeAdapter:
                 engine=self.name,
                 model=model,
                 error_message="No workspace path set on task",
+            )
+
+        if task.sandbox_mode:
+            sandbox_config = SandboxConfig(image=task.sandbox_image)
+            cmd = build_docker_cmd(
+                sandbox_config,
+                cmd,
+                workspace_path=str(workspace),
+                env_vars=env_overrides,
+            )
+            logger.info(
+                "engine.sandbox.enabled",
+                engine=self.name,
+                image=task.sandbox_image,
             )
 
         result = await run_engine_subprocess(
