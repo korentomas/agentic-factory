@@ -147,7 +147,7 @@ def classify_error(error: Exception, context: ErrorContext) -> ErrorCategory:
 
 def _backoff(retry_count: int) -> float:
     """Exponential backoff with jitter, capped at 60 s."""
-    base = min(2 ** retry_count, 60)
+    base: float = min(2 ** retry_count, 60)
     jitter = random.uniform(0, base * 0.5)  # noqa: S311
     return base + jitter
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import structlog
@@ -165,7 +166,7 @@ class IssueCreator:
     # GitHub API helpers
     # ------------------------------------------------------------------
 
-    async def _find_duplicate(self, dedup_hash: str) -> dict | None:
+    async def _find_duplicate(self, dedup_hash: str) -> dict[str, Any] | None:
         """Search GitHub for an open issue with the same dedup hash.
 
         Uses the Issues search API:
@@ -194,7 +195,8 @@ class IssueCreator:
                 issue_url=items[0].get("html_url"),
                 dedup_hash=dedup_hash,
             )
-            return items[0]
+            result: dict[str, Any] = items[0]
+            return result
         return None
 
     async def _create_issue(
@@ -202,7 +204,7 @@ class IssueCreator:
         title: str,
         body: str,
         labels: list[str],
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a new GitHub issue via the REST API."""
         token = self._get_token()
         url = f"https://api.github.com/repos/{_REPO}/issues"
@@ -217,11 +219,12 @@ class IssueCreator:
                 },
             )
             resp.raise_for_status()
-            return resp.json()
+            data: dict[str, Any] = resp.json()
+            return data
 
     async def _append_comment(
         self,
-        existing: dict,
+        existing: dict[str, Any],
         error: Exception,
         context: ErrorContext,
     ) -> None:
@@ -279,14 +282,14 @@ class IssueCreator:
             existing = await self._find_duplicate(dedup_hash)
             if existing is not None:
                 await self._append_comment(existing, error, context)
-                return existing.get("html_url", "")
+                return str(existing.get("html_url", ""))
 
             title = self._render_title(error, context)
             body = self._render_body(error, context, category, dedup_hash)
             labels = self._get_labels(category)
 
             issue = await self._create_issue(title, body, labels)
-            url = issue.get("html_url", "")
+            url = str(issue.get("html_url", ""))
             logger.info("issue_creator.created", issue_url=url)
             return url
 
