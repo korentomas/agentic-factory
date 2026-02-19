@@ -11,6 +11,7 @@ Verifies that the endpoint:
 
 from __future__ import annotations
 
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -42,15 +43,27 @@ def test_metrics_endpoint_body_contains_help_lines(client: TestClient) -> None:
 
 def test_metrics_exposes_http_requests_total(client: TestClient) -> None:
     """GET /metrics exposes the http_requests_total counter family."""
-    # Trigger at least one request so the metric has a sample.
-    client.get("/health")
+    # Trigger a non-probe request so the metric has a sample.
+    client.post(
+        "/callbacks/agent-complete",
+        json={
+            "clickup_task_id": "test",
+            "status": "success",
+        },
+    )
     response = client.get("/metrics")
     assert "http_requests_total" in response.text
 
 
 def test_metrics_exposes_http_request_duration_seconds(client: TestClient) -> None:
     """GET /metrics exposes http_request_duration_seconds histogram."""
-    client.get("/health")
+    client.post(
+        "/callbacks/agent-complete",
+        json={
+            "clickup_task_id": "test",
+            "status": "success",
+        },
+    )
     response = client.get("/metrics")
     assert "http_request_duration_seconds" in response.text
 
@@ -70,31 +83,63 @@ def test_metrics_exposes_notification_failures_total(client: TestClient) -> None
 # ── Metric instrumentation ────────────────────────────────────────────────────
 
 
-def test_http_requests_total_increments_after_health_request(
+def _get_metric_value(metrics_text: str, metric_name: str, labels: dict[str, str]) -> float:
+    """Parse Prometheus text exposition format and return the value for a metric with labels."""
+    label_str = ",".join(f'{k}="{v}"' for k, v in sorted(labels.items()))
+    pattern = rf'^{re.escape(metric_name)}\{{{re.escape(label_str)}\}}\s+(\S+)'
+    for line in metrics_text.splitlines():
+        match = re.match(pattern, line)
+        if match:
+            return float(match.group(1))
+    return 0.0
+
+
+def test_http_requests_total_increments_after_callback_request(
     client: TestClient,
 ) -> None:
-    """After GET /health, http_requests_total includes a sample for GET /health 200."""
-    # Make a request that we can observe in the metrics output.
-    client.get("/health")
+    """After POST /callbacks/agent-complete, http_requests_total includes a sample."""
+    client.post(
+        "/callbacks/agent-complete",
+        json={
+            "clickup_task_id": "test",
+            "status": "success",
+        },
+    )
 
     response = client.get("/metrics")
     body = response.text
 
-    # The metric line should contain labels for the health request.
-    assert 'method="GET"' in body
-    assert 'path="/health"' in body
+    # The metric line should contain labels for the callback request.
+    assert 'method="POST"' in body
+    assert 'path="/callbacks/agent-complete"' in body
     assert 'status_code="200"' in body
+
+
+def test_health_and_metrics_excluded_from_prometheus_counters(
+    client: TestClient,
+) -> None:
+    """Probe endpoints (/health, /metrics, /ready) should not appear in http_requests_total."""
+    # Hit the probe endpoints
+    client.get("/health")
+    client.get("/metrics")
+    client.get("/ready")
+
+    response = client.get("/metrics")
+    body = response.text
+
+    # No http_requests_total line should have probe endpoint paths
+    for line in body.splitlines():
+        if line.startswith("http_requests_total{"):
+            assert 'path="/health"' not in line
+            assert 'path="/metrics"' not in line
+            assert 'path="/ready"' not in line
 
 
 def test_notification_failures_total_increments_on_slack_error(
     env_vars: dict[str, str],
 ) -> None:
     """notification_failures_total{target="slack"} increments when Slack POST fails."""
-    from apps.orchestrator import metrics as _metrics
     from apps.orchestrator.main import app
-
-    # Read current count before the test.
-    before = _metrics.NOTIFICATION_FAILURES_TOTAL.labels(target="slack")._value.get()
 
     # Build a mock client that raises an HTTP error on POST.
     mock_response = MagicMock()
@@ -115,6 +160,12 @@ def test_notification_failures_total_increments_on_slack_error(
 
     with patch("httpx.AsyncClient", return_value=mock_client):
         with TestClient(app, raise_server_exceptions=False) as c:
+            # Get baseline
+            baseline = c.get("/metrics").text
+            before = _get_metric_value(
+                baseline, "notification_failures_total", {"target": "slack"}
+            )
+
             c.post(
                 "/callbacks/review-clean",
                 json={
@@ -127,7 +178,11 @@ def test_notification_failures_total_increments_on_slack_error(
                 headers={"X-Callback-Secret": env_vars["CALLBACK_SECRET"]},
             )
 
-    after = _metrics.NOTIFICATION_FAILURES_TOTAL.labels(target="slack")._value.get()
+            after_text = c.get("/metrics").text
+            after = _get_metric_value(
+                after_text, "notification_failures_total", {"target": "slack"}
+            )
+
     assert after > before, (
         f"notification_failures_total{{target='slack'}} should have incremented "
         f"(was {before}, now {after})"
@@ -138,10 +193,7 @@ def test_notification_failures_total_increments_on_clickup_error(
     env_vars: dict[str, str],
 ) -> None:
     """notification_failures_total{target="clickup"} increments when ClickUp POST fails."""
-    from apps.orchestrator import metrics as _metrics
     from apps.orchestrator.main import app
-
-    before = _metrics.NOTIFICATION_FAILURES_TOTAL.labels(target="clickup")._value.get()
 
     mock_response = MagicMock()
     mock_response.status_code = 429
@@ -161,8 +213,11 @@ def test_notification_failures_total_increments_on_clickup_error(
 
     with patch("httpx.AsyncClient", return_value=mock_client):
         with TestClient(app, raise_server_exceptions=False) as c:
-            # /callbacks/review-clean posts to both Slack and ClickUp.
-            # Here Slack will also fail but we test only the ClickUp counter.
+            baseline = c.get("/metrics").text
+            before = _get_metric_value(
+                baseline, "notification_failures_total", {"target": "clickup"}
+            )
+
             c.post(
                 "/callbacks/review-clean",
                 json={
@@ -175,7 +230,11 @@ def test_notification_failures_total_increments_on_clickup_error(
                 headers={"X-Callback-Secret": env_vars["CALLBACK_SECRET"]},
             )
 
-    after = _metrics.NOTIFICATION_FAILURES_TOTAL.labels(target="clickup")._value.get()
+            after_text = c.get("/metrics").text
+            after = _get_metric_value(
+                after_text, "notification_failures_total", {"target": "clickup"}
+            )
+
     assert after > before, (
         f"notification_failures_total{{target='clickup'}} should have incremented "
         f"(was {before}, now {after})"

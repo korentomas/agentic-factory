@@ -280,7 +280,7 @@ async def _post_slack(text: str) -> None:
         return
 
     delays = [1.0, 2.0]
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=3.0) as client:
         for attempt in range(3):
             try:
                 resp = await client.post(
@@ -341,7 +341,7 @@ async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
         return
 
     delays = [1.0, 2.0]
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=3.0) as client:
         for attempt in range(3):
             try:
                 resp = await client.post(

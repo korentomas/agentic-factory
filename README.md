@@ -277,7 +277,7 @@ Probably the fastest way to see what it actually does.
 
 ## Contributing
 
-PRs welcome. ~3,100 lines of Python, 560 tests, 92% coverage.
+PRs welcome. ~3,100 lines of Python, 575 tests, 92% coverage.
 
 Some things that would be useful:
 - Webhook providers beyond ClickUp (Linear, Jira, Shortcut)

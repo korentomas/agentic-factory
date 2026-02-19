@@ -15,7 +15,6 @@ import fnmatch
 import json
 import logging
 import os
-import sys
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -152,19 +151,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Validate configuration at startup. Log clearly what's missing.
     Cloud Run will restart the container on failure — we want clear logs.
     """
-    # Validate risk-policy.json schema
+    # Validate risk-policy.json schema (used by CI risk gate, not the orchestrator)
     policy_errors = _validate_risk_policy()
     if policy_errors:
         for err in policy_errors:
-            logger.error("risk_policy_validation_failed", error=err)
-        logger.error(
+            logger.warning("risk_policy_validation_error", error=err)
+        logger.warning(
             "risk_policy_invalid",
             error_count=len(policy_errors),
-            impact="Shutting down — fix risk-policy.json before restarting.",
+            impact="Risk policy gate in CI may behave unexpectedly. Fix risk-policy.json.",
         )
-        sys.exit(1)
-
-    logger.info("risk_policy_validated")
+    else:
+        logger.info("risk_policy_validated")
 
     required: list[str] = [
         "CLICKUP_WEBHOOK_SECRET",
@@ -260,15 +258,16 @@ async def log_requests(
     logger.info("http_request", status=response.status_code, duration_ms=duration_ms)
 
     path = request.url.path
-    _metrics.HTTP_REQUESTS_TOTAL.labels(
-        method=request.method,
-        path=path,
-        status_code=str(response.status_code),
-    ).inc()
-    _metrics.HTTP_REQUEST_DURATION_SECONDS.labels(
-        method=request.method,
-        path=path,
-    ).observe(duration_s)
+    if path not in ("/metrics", "/health", "/ready"):
+        _metrics.HTTP_REQUESTS_TOTAL.labels(
+            method=request.method,
+            path=path,
+            status_code=str(response.status_code),
+        ).inc()
+        _metrics.HTTP_REQUEST_DURATION_SECONDS.labels(
+            method=request.method,
+            path=path,
+        ).observe(duration_s)
 
     response.headers["X-Request-ID"] = request_id
     return response
