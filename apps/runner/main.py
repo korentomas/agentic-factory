@@ -1,0 +1,326 @@
+"""
+LailaTov Agent Runner — HTTP service for executing coding agents.
+
+Receives task requests from the orchestrator, runs coding agents
+as subprocesses, and returns structured results.
+
+Usage::
+
+    uvicorn apps.runner.main:app --host 0.0.0.0 --port 8001
+
+Or::
+
+    python -m apps.runner.main
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import structlog
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+from apps.runner.engines.registry import select_engine
+from apps.runner.models import RunnerResult, RunnerTask, TaskState, TaskStatus
+from apps.runner.workspace import (
+    cleanup_workspace,
+    commit_changes,
+    create_workspace,
+    list_changed_files,
+    push_changes,
+)
+
+logger = structlog.get_logger()
+
+
+def _get_env(key: str, default: str = "") -> str:
+    """Read env var at call time."""
+    return os.getenv(key, default)
+
+
+# ── In-memory task store ─────────────────────────────────────────────────────
+# For v1, tasks are stored in memory. Future: Redis or database.
+_tasks: dict[str, TaskState] = {}
+
+
+# ── Pydantic request/response models ────────────────────────────────────────
+
+
+class TaskRequest(BaseModel):
+    """HTTP request body for submitting a task."""
+
+    task_id: str
+    repo_url: str
+    branch: str
+    base_branch: str = "main"
+    title: str = ""
+    description: str
+    risk_tier: str = "medium"
+    complexity: str = "standard"
+    engine: str | None = None
+    model: str | None = None
+    max_turns: int = 40
+    timeout_seconds: int = 3600
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    constitution: str = ""
+    callback_url: str | None = None
+    github_token: str | None = None
+
+
+class TaskResponse(BaseModel):
+    """HTTP response for task status."""
+
+    task_id: str
+    status: str
+    engine: str | None = None
+    model: str | None = None
+    files_changed: list[str] = Field(default_factory=list)
+    cost_usd: float = 0.0
+    num_turns: int = 0
+    duration_ms: int = 0
+    commit_sha: str | None = None
+    error_message: str | None = None
+
+
+class HealthResponse(BaseModel):
+    """Health check response."""
+
+    status: str
+    active_tasks: int
+    version: str = "0.1.0"
+
+
+# ── Lifespan ─────────────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Startup and shutdown lifecycle."""
+    logger.info("runner.startup", version="0.1.0")
+    yield
+    # Cleanup: cancel any running tasks
+    for task_id, state in _tasks.items():
+        if state.status == TaskStatus.RUNNING:
+            logger.warning("runner.shutdown.orphan", task_id=task_id)
+    _tasks.clear()
+    logger.info("runner.shutdown")
+
+
+# ── App ──────────────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="LailaTov Agent Runner",
+    description="Executes coding agents as subprocesses",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    """Health check."""
+    active = sum(
+        1 for s in _tasks.values()
+        if s.status in (TaskStatus.RUNNING, TaskStatus.COMMITTING)
+    )
+    return HealthResponse(status="ok", active_tasks=active)
+
+
+@app.post("/tasks", response_model=TaskResponse, status_code=202)
+async def submit_task(request: TaskRequest) -> TaskResponse:
+    """Submit a new agent task for execution.
+
+    Returns 202 Accepted immediately. The task runs in the background.
+    Poll GET /tasks/{task_id} for status.
+    """
+    if request.task_id in _tasks:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task {request.task_id} already exists",
+        )
+
+    runner_task = RunnerTask(
+        task_id=request.task_id,
+        repo_url=request.repo_url,
+        branch=request.branch,
+        base_branch=request.base_branch,
+        title=request.title,
+        description=request.description,
+        risk_tier=request.risk_tier,
+        complexity=request.complexity,
+        engine=request.engine,
+        model=request.model,
+        max_turns=request.max_turns,
+        timeout_seconds=request.timeout_seconds,
+        env_vars=request.env_vars,
+        constitution=request.constitution,
+        callback_url=request.callback_url,
+    )
+
+    state = TaskState(task=runner_task)
+    _tasks[request.task_id] = state
+
+    # Fire and forget — run in background
+    asyncio.create_task(_execute_task(state, request.github_token))
+
+    return TaskResponse(
+        task_id=request.task_id,
+        status=TaskStatus.PENDING,
+    )
+
+
+@app.get("/tasks/{task_id}", response_model=TaskResponse)
+async def get_task(task_id: str) -> TaskResponse:
+    """Get the current status of a task."""
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    state = _tasks[task_id]
+    if state.result:
+        return TaskResponse(
+            task_id=task_id,
+            status=state.status.value,
+            engine=state.result.engine,
+            model=state.result.model,
+            files_changed=state.result.files_changed,
+            cost_usd=state.result.cost_usd,
+            num_turns=state.result.num_turns,
+            duration_ms=state.result.duration_ms,
+            commit_sha=state.result.commit_sha,
+            error_message=state.result.error_message,
+        )
+    return TaskResponse(task_id=task_id, status=state.status.value)
+
+
+@app.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str) -> dict[str, str]:
+    """Cancel a running task."""
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    state = _tasks[task_id]
+    if state.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Task {task_id} is {state.status.value}, cannot cancel",
+        )
+
+    state.status = TaskStatus.CANCELLED
+    return {"task_id": task_id, "status": "cancelled"}
+
+
+# ── Task execution ───────────────────────────────────────────────────────────
+
+
+async def _execute_task(state: TaskState, github_token: str | None = None) -> None:
+    """Execute a task end-to-end: workspace → engine → commit → push."""
+    task = state.task
+    log = logger.bind(task_id=task.task_id)
+
+    try:
+        # 1. Create workspace
+        state.status = TaskStatus.RUNNING
+        log.info("task.workspace.creating")
+        repo_path = await create_workspace(
+            task_id=task.task_id,
+            repo_url=task.repo_url,
+            branch=task.branch,
+            base_branch=task.base_branch,
+            github_token=github_token,
+        )
+        state.workspace_path = repo_path
+
+        # 2. Select and run engine
+        engine = select_engine(
+            model=task.model,
+            preferred_engine=task.engine,
+        )
+        log.info("task.engine.selected", engine=engine.name)
+
+        # Inject workspace path into task for the engine
+        # (RunnerTask is frozen, so we use object.__setattr__)
+        object.__setattr__(task, "workspace_path", repo_path)
+
+        result = await engine.run(task)
+
+        # 3. Commit and push if successful
+        if result.status == "success":
+            state.status = TaskStatus.COMMITTING
+            log.info("task.committing")
+
+            commit_msg = (
+                f"feat: {task.title or 'agent task'}\n\n"
+                f"Task: {task.task_id}\n"
+                f"Engine: {engine.name}\n"
+                f"Model: {result.model}\n\n"
+                f"Co-Authored-By: LailaTov Agent <agent@lailatov.dev>"
+            )
+            sha = await commit_changes(repo_path, commit_msg)
+            files = await list_changed_files(repo_path, task.base_branch)
+
+            pushed = False
+            if sha:
+                pushed = await push_changes(repo_path, task.branch)
+
+            result = RunnerResult(
+                task_id=result.task_id,
+                status=result.status,
+                engine=result.engine,
+                model=result.model,
+                files_changed=files,
+                cost_usd=result.cost_usd,
+                num_turns=result.num_turns,
+                duration_ms=result.duration_ms,
+                commit_sha=sha,
+                stdout_tail=result.stdout_tail,
+                stderr_tail=result.stderr_tail,
+            )
+
+            if not pushed and sha:
+                log.warning("task.push.failed")
+
+        state.result = result
+        state.status = (
+            TaskStatus.COMPLETE if result.status == "success"
+            else TaskStatus.FAILED
+        )
+        log.info("task.done", status=state.status.value)
+
+    except Exception as exc:
+        log.error("task.failed", error=str(exc))
+        state.status = TaskStatus.FAILED
+        state.result = RunnerResult(
+            task_id=task.task_id,
+            status="failure",
+            engine=task.engine or "unknown",
+            model=task.model or "unknown",
+            error_message=str(exc),
+        )
+
+    finally:
+        # Cleanup workspace (unless LAILATOV_KEEP_WORKSPACES is set)
+        if not _get_env("LAILATOV_KEEP_WORKSPACES"):
+            await cleanup_workspace(task.task_id)
+
+
+# ── CLI entry point ──────────────────────────────────────────────────────────
+
+
+def cli_main() -> None:
+    """CLI entry point for running the Agent Runner."""
+    import uvicorn
+
+    host = _get_env("RUNNER_HOST", "0.0.0.0")  # noqa: S104
+    port = int(_get_env("RUNNER_PORT", "8001"))
+    uvicorn.run(app, host=host, port=port)
+
+
+if __name__ == "__main__":
+    cli_main()
