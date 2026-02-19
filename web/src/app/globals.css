@@ -31,6 +31,7 @@
   --color-accent-warm-hover: #EB6101;
 
   --color-success: #6B8F3C;
+  --color-warning: #B5860A;
   --color-error: #C43E2A;
   --color-info: #4A8A82;
   --color-sakura: #FEDFE1;
@@ -106,6 +107,7 @@
     --color-accent-warm-hover: #F47B2A;
 
     --color-success: #8DB255;
+    --color-warning: #D9A521;
     --color-error: #E05A47;
     --color-info: #86ABA5;
     --color-sakura: #4A3233;

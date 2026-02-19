@@ -28,19 +28,18 @@ export async function POST(request: NextRequest) {
 
   switch (event.type) {
     case "checkout.session.completed": {
-      const session = event.data.object;
+      const _session = event.data.object;
       // TODO: Activate subscription for user
-      console.log("Checkout completed:", session.metadata);
       break;
     }
     case "customer.subscription.updated": {
-      const subscription = event.data.object;
-      console.log("Subscription updated:", subscription.id);
+      const _subscription = event.data.object;
+      // TODO: Handle subscription plan changes
       break;
     }
     case "customer.subscription.deleted": {
-      const subscription = event.data.object;
-      console.log("Subscription cancelled:", subscription.id);
+      const _subscription = event.data.object;
+      // TODO: Deactivate subscription for user
       break;
     }
     default:

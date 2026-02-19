@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
+import Link from "next/link";
 import { signIn } from "@/lib/auth";
+
+export const metadata: Metadata = {
+  title: "Sign in",
+};
 
 export default function LoginPage() {
   return (
@@ -39,7 +45,21 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-[var(--space-6)] text-center text-[var(--text-xs)] text-[var(--color-text-muted)]">
-          By signing in, you agree to our Terms of Service and Privacy Policy.
+          By signing in, you agree to our{" "}
+          <Link
+            href="/terms"
+            className="underline hover:text-[var(--color-text-secondary)]"
+          >
+            Terms of Service
+          </Link>{" "}
+          and{" "}
+          <Link
+            href="/privacy"
+            className="underline hover:text-[var(--color-text-secondary)]"
+          >
+            Privacy Policy
+          </Link>
+          .
         </p>
       </div>
     </div>

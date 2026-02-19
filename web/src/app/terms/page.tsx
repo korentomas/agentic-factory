@@ -1,9 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Terms of Service",
+};
 
 export default function TermsPage() {
   return (
     <div className="min-h-screen bg-[var(--color-bg)]">
-      <nav className="border-b border-[var(--color-border)]">
+      <nav aria-label="Back to home" className="border-b border-[var(--color-border)]">
         <div className="mx-auto flex h-16 max-w-3xl items-center px-[var(--space-6)]">
           <Link
             href="/"

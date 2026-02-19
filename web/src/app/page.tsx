@@ -27,16 +27,16 @@ export default function Home() {
               reviewed, tested pull requests. Triage, write, review, remediate
               &mdash; all autonomous, all night long.
             </p>
-            <div className="mt-[var(--space-12)] flex gap-[var(--space-4)]">
+            <div className="mt-[var(--space-12)] flex flex-col gap-[var(--space-4)] sm:flex-row">
               <a
                 href="/login"
-                className="rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-8)] py-[var(--space-3)] text-[var(--text-base)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
+                className="rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-8)] py-[var(--space-3)] text-center text-[var(--text-base)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
               >
                 Start building
               </a>
               <a
                 href="https://github.com/korentomas/agentic-factory"
-                className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] px-[var(--space-8)] py-[var(--space-3)] text-[var(--text-base)] text-[var(--color-text)] transition-colors hover:bg-[var(--color-bg-secondary)]"
+                className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] px-[var(--space-8)] py-[var(--space-3)] text-center text-[var(--text-base)] text-[var(--color-text)] transition-colors hover:bg-[var(--color-bg-secondary)]"
               >
                 View source
               </a>

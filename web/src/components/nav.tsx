@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export function Nav() {
   return (
-    <nav className="fixed top-0 z-50 w-full border-b border-[var(--color-border)] bg-[var(--color-bg)]/80 backdrop-blur-sm">
+    <nav aria-label="Main navigation" className="fixed top-0 z-50 w-full border-b border-[var(--color-border)] bg-[var(--color-bg)]/80 backdrop-blur-sm">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-[var(--space-6)]">
         <Link
           href="/"
