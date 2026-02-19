@@ -1,0 +1,252 @@
+import {
+  boolean,
+  index,
+  integer,
+  json,
+  numeric,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
+
+/* ─────────────────────────────────────────────────────────
+ * NextAuth tables — custom schema with snake_case DB columns
+ * Property names (camelCase) match what @auth/drizzle-adapter expects.
+ * DB column names (snake_case) match our convention.
+ * ───────────────────────────────────────────────────────── */
+
+/** Users table — NextAuth compatible. */
+export const users = pgTable("users", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name"),
+  email: text("email").unique(),
+  emailVerified: timestamp("email_verified", { mode: "date" }),
+  image: text("image"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+/** Accounts table — NextAuth compatible (OAuth provider links). */
+export const accounts = pgTable(
+  "accounts",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").$type<"oauth" | "oidc" | "email" | "webauthn">().notNull(),
+    provider: text("provider").notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    refresh_token: text("refresh_token"),
+    access_token: text("access_token"),
+    expires_at: integer("expires_at"),
+    token_type: text("token_type"),
+    scope: text("scope"),
+    id_token: text("id_token"),
+    session_state: text("session_state"),
+  },
+  (account) => [
+    primaryKey({ columns: [account.provider, account.providerAccountId] }),
+    index("accounts_user_id_idx").on(account.userId),
+  ],
+);
+
+/** Sessions table — NextAuth compatible. */
+export const sessions = pgTable(
+  "sessions",
+  {
+    sessionToken: text("session_token").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expires: timestamp("expires", { mode: "date" }).notNull(),
+  },
+  (session) => [
+    index("sessions_user_id_idx").on(session.userId),
+  ],
+);
+
+/** Verification tokens — NextAuth compatible (email verification, etc). */
+export const verificationTokens = pgTable(
+  "verification_tokens",
+  {
+    identifier: text("identifier").notNull(),
+    token: text("token").notNull(),
+    expires: timestamp("expires", { mode: "date" }).notNull(),
+  },
+  (vt) => [
+    primaryKey({ columns: [vt.identifier, vt.token] }),
+  ],
+);
+
+/* ─────────────────────────────────────────────────────────
+ * Application tables
+ * ───────────────────────────────────────────────────────── */
+
+/** Subscription statuses for Stripe. */
+export type SubscriptionStatus =
+  | "active"
+  | "cancelled"
+  | "past_due"
+  | "trialing";
+
+/** Subscriptions table — Stripe subscription data. */
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    stripeCustomerId: text("stripe_customer_id").notNull(),
+    stripeSubscriptionId: text("stripe_subscription_id").unique(),
+    stripePriceId: text("stripe_price_id"),
+    planId: text("plan_id").notNull(),
+    status: text("status")
+      .$type<SubscriptionStatus>()
+      .notNull()
+      .default("active"),
+    currentPeriodStart: timestamp("current_period_start", { mode: "date" }),
+    currentPeriodEnd: timestamp("current_period_end", { mode: "date" }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (sub) => [
+    index("subscriptions_user_id_idx").on(sub.userId),
+    index("subscriptions_stripe_customer_id_idx").on(sub.stripeCustomerId),
+    index("subscriptions_stripe_subscription_id_idx").on(
+      sub.stripeSubscriptionId,
+    ),
+  ],
+);
+
+/** Outcome values matching the pipeline spec. */
+export type OutcomeValue =
+  | "clean"
+  | "tests-failed"
+  | "review-failed"
+  | "blocked";
+
+/** Check status values. */
+export type CheckStatus = "success" | "failure" | "skipped";
+
+/** Risk tier values. */
+export type RiskTier = "high" | "medium" | "low";
+
+/** Agent outcomes table — mirrors agent-outcomes.jsonl in the database. */
+export const agentOutcomes = pgTable(
+  "agent_outcomes",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    outcome: text("outcome").$type<OutcomeValue>().notNull(),
+    prUrl: text("pr_url").notNull(),
+    prNumber: integer("pr_number").notNull(),
+    branch: text("branch").notNull(),
+    riskTier: text("risk_tier").$type<RiskTier>().notNull(),
+    checksGate: text("checks_gate").$type<CheckStatus>(),
+    checksTests: text("checks_tests").$type<CheckStatus>(),
+    checksReview: text("checks_review").$type<CheckStatus>(),
+    checksSpecAudit: text("checks_spec_audit").$type<CheckStatus>(),
+    filesChanged: json("files_changed").$type<string[]>().default([]),
+    reviewFindings: json("review_findings").$type<string[]>().default([]),
+    runId: text("run_id"),
+    model: text("model"),
+    reviewModel: text("review_model"),
+    provider: text("provider"),
+    engine: text("engine"),
+    costUsd: numeric("cost_usd", { precision: 10, scale: 4 }),
+    durationMs: integer("duration_ms"),
+    numTurns: integer("num_turns"),
+    timestamp: timestamp("timestamp", { mode: "date" }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (outcome) => [
+    index("agent_outcomes_user_id_idx").on(outcome.userId),
+    index("agent_outcomes_outcome_idx").on(outcome.outcome),
+    index("agent_outcomes_timestamp_idx").on(outcome.timestamp),
+    index("agent_outcomes_run_id_idx").on(outcome.runId),
+    index("agent_outcomes_engine_idx").on(outcome.engine),
+    index("agent_outcomes_model_idx").on(outcome.model),
+    index("agent_outcomes_risk_tier_idx").on(outcome.riskTier),
+  ],
+);
+
+/** Repositories table — connected GitHub repos. */
+export const repositories = pgTable(
+  "repositories",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    githubRepoId: integer("github_repo_id").notNull(),
+    fullName: text("full_name").notNull(),
+    installationId: integer("installation_id").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (repo) => [
+    index("repositories_user_id_idx").on(repo.userId),
+    index("repositories_github_repo_id_idx").on(repo.githubRepoId),
+    index("repositories_installation_id_idx").on(repo.installationId),
+  ],
+);
+
+/* ─────────────────────────────────────────────────────────
+ * Relations
+ * ───────────────────────────────────────────────────────── */
+
+export const usersRelations = relations(users, ({ many }) => ({
+  accounts: many(accounts),
+  sessions: many(sessions),
+  subscriptions: many(subscriptions),
+  agentOutcomes: many(agentOutcomes),
+  repositories: many(repositories),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+  user: one(users, {
+    fields: [accounts.userId],
+    references: [users.id],
+  }),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
+  user: one(users, {
+    fields: [subscriptions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const agentOutcomesRelations = relations(agentOutcomes, ({ one }) => ({
+  user: one(users, {
+    fields: [agentOutcomes.userId],
+    references: [users.id],
+  }),
+}));
+
+export const repositoriesRelations = relations(repositories, ({ one }) => ({
+  user: one(users, {
+    fields: [repositories.userId],
+    references: [users.id],
+  }),
+}));
