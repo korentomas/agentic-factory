@@ -577,8 +577,9 @@ class TestPostSlack:
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
-            # Must not raise
-            await _post_slack("test message")
+            with patch("asyncio.sleep"):
+                # Must not raise
+                await _post_slack("test message")
 
     @pytest.mark.asyncio
     async def test_post_slack_request_error_does_not_raise(
@@ -596,8 +597,9 @@ class TestPostSlack:
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
-            # Must not raise
-            await _post_slack("test message")
+            with patch("asyncio.sleep"):
+                # Must not raise
+                await _post_slack("test message")
 
     @pytest.mark.asyncio
     async def test_post_slack_http_error_logs_at_warning_not_error(
@@ -618,8 +620,9 @@ class TestPostSlack:
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
-            with structlog.testing.capture_logs() as logs:
-                await _post_slack("test message")
+            with patch("asyncio.sleep"):
+                with structlog.testing.capture_logs() as logs:
+                    await _post_slack("test message")
 
         failure_logs = [lg for lg in logs if lg.get("event") == "slack_post_failed"]
         assert len(failure_logs) == 1
@@ -643,8 +646,9 @@ class TestPostSlack:
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
-            with structlog.testing.capture_logs() as logs:
-                await _post_slack("test message")
+            with patch("asyncio.sleep"):
+                with structlog.testing.capture_logs() as logs:
+                    await _post_slack("test message")
 
         request_error_logs = [lg for lg in logs if lg.get("event") == "slack_request_error"]
         assert len(request_error_logs) == 1
@@ -722,8 +726,9 @@ class TestPostClickUpComment:
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
-            # Must not raise
-            await _post_clickup_comment("task123", "Hello")
+            with patch("asyncio.sleep"):
+                # Must not raise
+                await _post_clickup_comment("task123", "Hello")
 
     @pytest.mark.asyncio
     async def test_post_clickup_comment_http_error_logs_at_warning_not_error(
@@ -773,8 +778,9 @@ class TestPostClickUpComment:
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
-            with structlog.testing.capture_logs() as logs:
-                await _post_clickup_comment("task123", "Hello")
+            with patch("asyncio.sleep"):
+                with structlog.testing.capture_logs() as logs:
+                    await _post_clickup_comment("task123", "Hello")
 
         request_error_logs = [lg for lg in logs if lg.get("event") == "clickup_request_error"]
         assert len(request_error_logs) == 1
@@ -942,3 +948,218 @@ class TestBlockedPayloadValidation:
     def test_missing_pr_number_rejected(self) -> None:
         with pytest.raises(ValidationError):
             BlockedPayload(pr_url="https://github.com/org/repo/pull/1")  # type: ignore[call-arg]
+
+
+# ── Retry with exponential backoff ────────────────────────────────────────────
+
+
+class TestRetryBehavior:
+    """Tests for retry with exponential backoff in _post_slack and _post_clickup_comment."""
+
+    # ── _post_slack retry tests ────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_slack_succeeds_on_first_attempt_no_retry(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """No sleep occurs when the first Slack attempt succeeds."""
+        success_response = MagicMock()
+        success_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=success_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch("asyncio.sleep") as mock_sleep:
+                await _post_slack("hello")
+
+        mock_client.post.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_slack_succeeds_on_second_attempt_after_network_error(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """Slack retries once after a network error and succeeds on the second attempt."""
+        request_error = httpx.RequestError(
+            "connection refused",
+            request=httpx.Request("POST", "https://hooks.slack.com/test"),
+        )
+        success_response = MagicMock()
+        success_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=[request_error, success_response])
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch("asyncio.sleep") as mock_sleep:
+                await _post_slack("hello")
+
+        assert mock_client.post.call_count == 2
+        mock_sleep.assert_called_once_with(1.0)
+
+    @pytest.mark.asyncio
+    async def test_slack_all_retries_exhausted_logs_warning(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """After 3 failed Slack attempts, a warning is logged and no exception is raised."""
+        import structlog.testing
+
+        request_error = httpx.RequestError(
+            "connection refused",
+            request=httpx.Request("POST", "https://hooks.slack.com/test"),
+        )
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=request_error)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch("asyncio.sleep") as mock_sleep:
+                with structlog.testing.capture_logs() as logs:
+                    await _post_slack("hello")
+
+        assert mock_client.post.call_count == 3
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_any_call(1.0)
+        mock_sleep.assert_any_call(2.0)
+        warning_logs = [lg for lg in logs if lg.get("log_level") == "warning"]
+        assert len(warning_logs) == 1
+        assert warning_logs[0]["event"] == "slack_request_error"
+
+    @pytest.mark.asyncio
+    async def test_slack_retries_on_429_then_succeeds(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """A 429 rate-limit response triggers a retry and the second attempt succeeds."""
+        rate_limit_response = MagicMock()
+        rate_limit_response.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError(
+                "Rate Limited",
+                request=httpx.Request("POST", "https://hooks.slack.com/test"),
+                response=httpx.Response(429, text="rate limited"),
+            )
+        )
+        success_response = MagicMock()
+        success_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=[rate_limit_response, success_response])
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch("asyncio.sleep") as mock_sleep:
+                await _post_slack("hello")
+
+        assert mock_client.post.call_count == 2
+        mock_sleep.assert_called_once_with(1.0)
+
+    @pytest.mark.asyncio
+    async def test_slack_does_not_retry_on_4xx_client_error(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """4xx responses other than 429 are not retried — only the single attempt is made."""
+        forbidden_response = MagicMock()
+        forbidden_response.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError(
+                "Forbidden",
+                request=httpx.Request("POST", "https://hooks.slack.com/test"),
+                response=httpx.Response(403, text="forbidden"),
+            )
+        )
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=forbidden_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch("asyncio.sleep") as mock_sleep:
+                await _post_slack("hello")
+
+        mock_client.post.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    # ── _post_clickup_comment retry tests ─────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_clickup_succeeds_on_first_attempt_no_retry(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """No sleep occurs when the first ClickUp attempt succeeds."""
+        success_response = MagicMock()
+        success_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=success_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch("asyncio.sleep") as mock_sleep:
+                await _post_clickup_comment("task123", "hello")
+
+        mock_client.post.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_clickup_succeeds_on_second_attempt_after_network_error(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """ClickUp retries once after a network error and succeeds on the second attempt."""
+        request_error = httpx.RequestError(
+            "DNS resolution failed",
+            request=httpx.Request(
+                "POST", "https://api.clickup.com/api/v2/task/task123/comment"
+            ),
+        )
+        success_response = MagicMock()
+        success_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=[request_error, success_response])
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch("asyncio.sleep") as mock_sleep:
+                await _post_clickup_comment("task123", "hello")
+
+        assert mock_client.post.call_count == 2
+        mock_sleep.assert_called_once_with(1.0)
+
+    @pytest.mark.asyncio
+    async def test_clickup_all_retries_exhausted_logs_warning(
+        self, env_vars: dict[str, str]
+    ) -> None:
+        """After 3 failed ClickUp attempts, a warning is logged and no exception is raised."""
+        import structlog.testing
+
+        server_error = httpx.HTTPStatusError(
+            "Internal Server Error",
+            request=httpx.Request(
+                "POST", "https://api.clickup.com/api/v2/task/task123/comment"
+            ),
+            response=httpx.Response(500, text="server error"),
+        )
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=server_error)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with patch("asyncio.sleep") as mock_sleep:
+                with structlog.testing.capture_logs() as logs:
+                    await _post_clickup_comment("task123", "hello")
+
+        assert mock_client.post.call_count == 3
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_any_call(1.0)
+        mock_sleep.assert_any_call(2.0)
+        warning_logs = [lg for lg in logs if lg.get("log_level") == "warning"]
+        assert len(warning_logs) == 1
+        assert warning_logs[0]["event"] == "clickup_comment_failed"

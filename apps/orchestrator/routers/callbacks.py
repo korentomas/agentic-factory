@@ -12,6 +12,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
 from typing import Any
@@ -261,6 +262,9 @@ async def blocked(
 async def _post_slack(text: str) -> None:
     """
     Post a message to Slack via incoming webhook URL.
+
+    Retries up to 3 times total (1 initial + 2 retries) with exponential backoff
+    (1s, 2s delays). Only retries on network errors and 429/5xx responses.
     Logs and swallows errors — notification failure must not break the callback response.
     """
     slack_url = _get_env("SLACK_WEBHOOK_URL")
@@ -273,28 +277,54 @@ async def _post_slack(text: str) -> None:
         )
         return
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                slack_url,
-                json={"text": text, "channel": slack_channel},
-            )
-            resp.raise_for_status()
-            logger.debug("slack_sent", channel=slack_channel)
-    except httpx.HTTPStatusError as exc:
-        logger.warning(
-            "slack_post_failed",
-            status_code=exc.response.status_code,
-            response_body=exc.response.text[:200],
-            error=str(exc),
-        )
-    except httpx.RequestError as exc:
-        logger.warning("slack_request_error", error=str(exc))
+    delays = [1.0, 2.0]
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for attempt in range(3):
+            try:
+                resp = await client.post(
+                    slack_url,
+                    json={"text": text, "channel": slack_channel},
+                )
+                resp.raise_for_status()
+                logger.debug("slack_sent", channel=slack_channel)
+                return
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                is_retriable = status_code == 429 or status_code >= 500
+                if is_retriable and attempt < 2:
+                    logger.debug(
+                        "slack_retry",
+                        attempt=attempt + 1,
+                        status_code=status_code,
+                    )
+                    await asyncio.sleep(delays[attempt])
+                    continue
+                logger.warning(
+                    "slack_post_failed",
+                    status_code=status_code,
+                    response_body=exc.response.text[:200],
+                    error=str(exc),
+                )
+                return
+            except httpx.RequestError as exc:
+                if attempt < 2:
+                    logger.debug(
+                        "slack_retry",
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
+                    await asyncio.sleep(delays[attempt])
+                    continue
+                logger.warning("slack_request_error", error=str(exc))
+                return
 
 
 async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
     """
     Post a comment to a ClickUp task via the ClickUp API.
+
+    Retries up to 3 times total (1 initial + 2 retries) with exponential backoff
+    (1s, 2s delays). Only retries on network errors and 429/5xx responses.
     Logs and swallows errors — notification failure must not break the callback response.
     """
     clickup_token = _get_env("CLICKUP_API_TOKEN")
@@ -306,28 +336,53 @@ async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
         )
         return
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"https://api.clickup.com/api/v2/task/{task_id}/comment",
-                headers={
-                    "Authorization": clickup_token,
-                    "Content-Type": "application/json",
-                },
-                json={"comment_text": comment_text, "notify_all": False},
-            )
-            resp.raise_for_status()
-            logger.debug("clickup_comment_posted", task_id=task_id)
-    except httpx.HTTPStatusError as exc:
-        logger.warning(
-            "clickup_comment_failed",
-            task_id=task_id,
-            status_code=exc.response.status_code,
-            response_body=exc.response.text[:200],
-            error=str(exc),
-        )
-    except httpx.RequestError as exc:
-        logger.warning("clickup_request_error", task_id=task_id, error=str(exc))
+    delays = [1.0, 2.0]
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for attempt in range(3):
+            try:
+                resp = await client.post(
+                    f"https://api.clickup.com/api/v2/task/{task_id}/comment",
+                    headers={
+                        "Authorization": clickup_token,
+                        "Content-Type": "application/json",
+                    },
+                    json={"comment_text": comment_text, "notify_all": False},
+                )
+                resp.raise_for_status()
+                logger.debug("clickup_comment_posted", task_id=task_id)
+                return
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                is_retriable = status_code == 429 or status_code >= 500
+                if is_retriable and attempt < 2:
+                    logger.debug(
+                        "clickup_retry",
+                        attempt=attempt + 1,
+                        task_id=task_id,
+                        status_code=status_code,
+                    )
+                    await asyncio.sleep(delays[attempt])
+                    continue
+                logger.warning(
+                    "clickup_comment_failed",
+                    task_id=task_id,
+                    status_code=status_code,
+                    response_body=exc.response.text[:200],
+                    error=str(exc),
+                )
+                return
+            except httpx.RequestError as exc:
+                if attempt < 2:
+                    logger.debug(
+                        "clickup_retry",
+                        attempt=attempt + 1,
+                        task_id=task_id,
+                        error=str(exc),
+                    )
+                    await asyncio.sleep(delays[attempt])
+                    continue
+                logger.warning("clickup_request_error", task_id=task_id, error=str(exc))
+                return
 
 
 def _extract_task_id_from_branch(branch: str) -> str:
