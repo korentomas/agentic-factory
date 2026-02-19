@@ -703,3 +703,278 @@ class TestDedupeCacheConfiguration:
 
         fake_time = 2011.0  # 11 seconds later, past the 10s TTL
         assert cache.is_duplicate("ttl-test-key") is False
+
+
+# ── 12. _dispatch_task background function ──────────────────────────────────
+
+class TestDispatchTask:
+    """Tests for the _dispatch_task background function (lines 187-279).
+
+    This function:
+    1. Reads env vars (CLICKUP_API_TOKEN, GITHUB_APP_TOKEN, GITHUB_REPO)
+    2. Fetches task details from ClickUp API
+    3. Parses into AgentTask
+    4. Dispatches to GitHub Actions via repository_dispatch
+    """
+
+    @pytest.mark.asyncio
+    async def test_missing_clickup_token_returns_early(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.delenv("CLICKUP_API_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+
+        # Should return without error (logs and exits)
+        await _dispatch_task("task-no-token")
+
+    @pytest.mark.asyncio
+    async def test_missing_github_token_returns_early(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.delenv("GITHUB_APP_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+
+        await _dispatch_task("task-no-github-token")
+
+    @pytest.mark.asyncio
+    async def test_missing_github_repo_returns_early(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.delenv("GITHUB_REPO", raising=False)
+
+        await _dispatch_task("task-no-repo")
+
+    @pytest.mark.asyncio
+    async def test_clickup_api_http_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+
+        error_resp = httpx.Response(
+            404,
+            json={"err": "Task not found"},
+            request=httpx.Request("GET", "https://api.clickup.com/api/v2/task/bad-id"),
+        )
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "404", request=error_resp.request, response=error_resp
+            )
+        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("apps.orchestrator.routers.clickup.httpx.AsyncClient", return_value=mock_client):
+            await _dispatch_task("bad-id")  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_clickup_api_connection_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("apps.orchestrator.routers.clickup.httpx.AsyncClient", return_value=mock_client):
+            await _dispatch_task("unreachable-task")  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_agent_task_parse_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ClickUp returns a task with no title — parse raises ValueError."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+
+        clickup_response = MagicMock()
+        clickup_response.status_code = 200
+        clickup_response.json.return_value = {"name": "", "description": "No title task"}
+        clickup_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=clickup_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("apps.orchestrator.routers.clickup.httpx.AsyncClient", return_value=mock_client):
+            await _dispatch_task("no-title-task")  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_github_dispatch_http_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ClickUp fetch succeeds, but GitHub dispatch returns 403."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        import httpx
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+
+        # First call = ClickUp GET (success), second call = GitHub POST (error)
+        clickup_response = MagicMock()
+        clickup_response.status_code = 200
+        clickup_response.json.return_value = {"name": "Fix bug", "description": "Details here"}
+        clickup_response.raise_for_status = MagicMock()
+
+        github_error = httpx.Response(
+            403,
+            json={"message": "Forbidden"},
+            request=httpx.Request("POST", "https://api.github.com/repos/org/repo/dispatches"),
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=clickup_response)
+        mock_client.post = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "403", request=github_error.request, response=github_error
+            )
+        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("apps.orchestrator.routers.clickup.httpx.AsyncClient", return_value=mock_client):
+            await _dispatch_task("github-error-task")  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_github_dispatch_connection_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ClickUp fetch succeeds, but GitHub is unreachable."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        import httpx
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+
+        clickup_response = MagicMock()
+        clickup_response.status_code = 200
+        clickup_response.json.return_value = {"name": "Fix bug", "description": "Details"}
+        clickup_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=clickup_response)
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("apps.orchestrator.routers.clickup.httpx.AsyncClient", return_value=mock_client):
+            await _dispatch_task("github-unreachable-task")  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_successful_dispatch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Full happy path: ClickUp fetch → parse → GitHub dispatch."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+
+        clickup_response = MagicMock()
+        clickup_response.status_code = 200
+        clickup_response.json.return_value = {
+            "name": "Add dark mode",
+            "description": "Implement dark mode toggle in settings",
+        }
+        clickup_response.raise_for_status = MagicMock()
+
+        github_response = MagicMock()
+        github_response.status_code = 204
+        github_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=clickup_response)
+        mock_client.post = AsyncMock(return_value=github_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("apps.orchestrator.routers.clickup.httpx.AsyncClient", return_value=mock_client):
+            await _dispatch_task("success-task")
+
+        # Verify GitHub dispatch was called with correct payload
+        post_call = mock_client.post.call_args
+        assert "api.github.com/repos/org/repo/dispatches" in post_call.args[0]
+        payload = post_call.kwargs["json"]
+        assert payload["event_type"] == "agent-task"
+        assert payload["client_payload"]["clickup_task_id"] == "success-task"
+        assert payload["client_payload"]["title"] == "Add dark mode"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_sends_correct_clickup_headers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify ClickUp API call includes the Authorization header."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_my_token_123")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+
+        clickup_response = MagicMock()
+        clickup_response.status_code = 200
+        clickup_response.json.return_value = {"name": "Task", "description": "Desc"}
+        clickup_response.raise_for_status = MagicMock()
+
+        github_response = MagicMock()
+        github_response.status_code = 204
+        github_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=clickup_response)
+        mock_client.post = AsyncMock(return_value=github_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("apps.orchestrator.routers.clickup.httpx.AsyncClient", return_value=mock_client):
+            await _dispatch_task("header-check-task")
+
+        # Verify ClickUp GET used the right token
+        get_call = mock_client.get.call_args
+        assert get_call.kwargs["headers"]["Authorization"] == "ck_my_token_123"
