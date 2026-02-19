@@ -108,12 +108,12 @@ class AiderAdapter:
 
         # Aider doesn't output structured cost data, but we can try to parse it
         cost_usd = _parse_aider_cost(result.stdout)
-        status = "success" if result.return_code == 0 else "failure"
-        error_msg = None if status == "success" else tail(result.stderr)
+        succeeded = result.return_code == 0
+        error_msg = None if succeeded else tail(result.stderr)
 
         return RunnerResult(
             task_id=task.task_id,
-            status=status,
+            status="success" if succeeded else "failure",
             engine=self.name,
             model=model,
             cost_usd=cost_usd,

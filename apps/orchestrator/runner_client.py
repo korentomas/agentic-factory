@@ -114,7 +114,7 @@ class RunnerClient:
                     headers=headers,
                 )
                 resp.raise_for_status()
-                result = resp.json()
+                result: dict[str, str] = resp.json()
 
         except httpx.HTTPStatusError as exc:
             log.error(
@@ -156,7 +156,8 @@ class RunnerClient:
                     headers=headers,
                 )
                 resp.raise_for_status()
-                return resp.json()
+                result: dict[str, object] = resp.json()
+                return result
 
         except httpx.HTTPStatusError as exc:
             raise RunnerError(

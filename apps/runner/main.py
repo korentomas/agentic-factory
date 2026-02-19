@@ -19,6 +19,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Literal, cast
 
 import structlog
 from fastapi import FastAPI, HTTPException
@@ -146,6 +147,16 @@ async def submit_task(request: TaskRequest) -> TaskResponse:
             detail=f"Task {request.task_id} already exists",
         )
 
+    # Validate risk_tier and complexity at the boundary
+    risk_tier = cast(
+        Literal["high", "medium", "low"],
+        request.risk_tier if request.risk_tier in ("high", "medium", "low") else "medium",
+    )
+    complexity = cast(
+        Literal["high", "standard"],
+        request.complexity if request.complexity in ("high", "standard") else "standard",
+    )
+
     runner_task = RunnerTask(
         task_id=request.task_id,
         repo_url=request.repo_url,
@@ -153,8 +164,8 @@ async def submit_task(request: TaskRequest) -> TaskResponse:
         base_branch=request.base_branch,
         title=request.title,
         description=request.description,
-        risk_tier=request.risk_tier,
-        complexity=request.complexity,
+        risk_tier=risk_tier,
+        complexity=complexity,
         engine=request.engine,
         model=request.model,
         max_turns=request.max_turns,

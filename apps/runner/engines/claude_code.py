@@ -104,12 +104,12 @@ class ClaudeCodeAdapter:
         # Parse JSON output for metrics
         cost_usd, num_turns = _parse_claude_output(result.stdout)
 
-        status = "success" if result.return_code == 0 else "failure"
-        error_msg = None if status == "success" else tail(result.stderr)
+        succeeded = result.return_code == 0
+        error_msg = None if succeeded else tail(result.stderr)
 
         return RunnerResult(
             task_id=task.task_id,
-            status=status,
+            status="success" if succeeded else "failure",
             engine=self.name,
             model=model,
             cost_usd=cost_usd,
