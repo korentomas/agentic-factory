@@ -956,6 +956,7 @@ class TestDispatchTask:
         monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_my_token_123")
         monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
         monkeypatch.setenv("GITHUB_REPO", "org/repo")
+        monkeypatch.delenv("DISPATCH_TARGET", raising=False)
 
         clickup_response = MagicMock()
         clickup_response.status_code = 200
@@ -972,9 +973,189 @@ class TestDispatchTask:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("apps.orchestrator.routers.clickup.httpx.AsyncClient", return_value=mock_client):
+        with patch(
+            "apps.orchestrator.routers.clickup.httpx.AsyncClient",
+            return_value=mock_client,
+        ):
             await _dispatch_task("header-check-task")
 
         # Verify ClickUp GET used the right token
         get_call = mock_client.get.call_args
         assert get_call.kwargs["headers"]["Authorization"] == "ck_my_token_123"
+
+
+# ── 13. DISPATCH_TARGET routing ─────────────────────────────────────────────
+
+class TestDispatchTargetRouting:
+    """Tests for DISPATCH_TARGET env var routing between GitHub and Runner."""
+
+    @pytest.mark.asyncio
+    async def test_default_dispatches_to_github(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without DISPATCH_TARGET, dispatch goes to GitHub Actions."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+        monkeypatch.delenv("DISPATCH_TARGET", raising=False)
+
+        clickup_response = MagicMock()
+        clickup_response.status_code = 200
+        clickup_response.json.return_value = {
+            "name": "Test task",
+            "description": "Details",
+        }
+        clickup_response.raise_for_status = MagicMock()
+
+        github_response = MagicMock()
+        github_response.status_code = 204
+        github_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=clickup_response)
+        mock_client.post = AsyncMock(return_value=github_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "apps.orchestrator.routers.clickup.httpx.AsyncClient",
+            return_value=mock_client,
+        ):
+            await _dispatch_task("default-target-task")
+
+        # GitHub dispatch should have been called
+        post_call = mock_client.post.call_args
+        assert "api.github.com" in post_call.args[0]
+
+    @pytest.mark.asyncio
+    async def test_github_target_dispatches_to_github(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DISPATCH_TARGET=github explicitly routes to GitHub."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+        monkeypatch.setenv("DISPATCH_TARGET", "github")
+
+        clickup_response = MagicMock()
+        clickup_response.status_code = 200
+        clickup_response.json.return_value = {
+            "name": "Test task",
+            "description": "Details",
+        }
+        clickup_response.raise_for_status = MagicMock()
+
+        github_response = MagicMock()
+        github_response.status_code = 204
+        github_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=clickup_response)
+        mock_client.post = AsyncMock(return_value=github_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "apps.orchestrator.routers.clickup.httpx.AsyncClient",
+            return_value=mock_client,
+        ):
+            await _dispatch_task("github-target-task")
+
+        post_call = mock_client.post.call_args
+        assert "api.github.com" in post_call.args[0]
+
+    @pytest.mark.asyncio
+    async def test_runner_target_dispatches_to_runner(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DISPATCH_TARGET=runner routes to the Agent Runner service."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+        monkeypatch.setenv("DISPATCH_TARGET", "runner")
+
+        clickup_response = MagicMock()
+        clickup_response.status_code = 200
+        clickup_response.json.return_value = {
+            "name": "Runner task",
+            "description": "Details for runner",
+        }
+        clickup_response.raise_for_status = MagicMock()
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get = AsyncMock(return_value=clickup_response)
+        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+        mock_http_client.__aexit__ = AsyncMock(return_value=False)
+
+        mock_submit = AsyncMock(
+            return_value={"task_id": "cu-runner-task", "status": "pending"}
+        )
+
+        with (
+            patch(
+                "apps.orchestrator.routers.clickup.httpx.AsyncClient",
+                return_value=mock_http_client,
+            ),
+            patch(
+                "apps.orchestrator.runner_client.RunnerClient.submit_task",
+                mock_submit,
+            ),
+        ):
+            await _dispatch_task("runner-target-task")
+
+        # Runner submit should have been called
+        mock_submit.assert_called_once()
+        call_args = mock_submit.call_args
+        assert call_args.args[0].clickup_task_id == "runner-target-task"
+
+    @pytest.mark.asyncio
+    async def test_runner_dispatch_error_is_logged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """RunnerError is caught and logged, not raised."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from apps.orchestrator.routers.clickup import _dispatch_task
+        from apps.orchestrator.runner_client import RunnerError
+
+        monkeypatch.setenv("CLICKUP_API_TOKEN", "ck_test")
+        monkeypatch.setenv("GITHUB_APP_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_REPO", "org/repo")
+        monkeypatch.setenv("DISPATCH_TARGET", "runner")
+
+        clickup_response = MagicMock()
+        clickup_response.status_code = 200
+        clickup_response.json.return_value = {
+            "name": "Error task",
+            "description": "Will fail",
+        }
+        clickup_response.raise_for_status = MagicMock()
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get = AsyncMock(return_value=clickup_response)
+        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+        mock_http_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "apps.orchestrator.routers.clickup.httpx.AsyncClient",
+                return_value=mock_http_client,
+            ),
+            patch(
+                "apps.orchestrator.runner_client.RunnerClient.submit_task",
+                AsyncMock(side_effect=RunnerError("Runner unreachable")),
+            ),
+        ):
+            await _dispatch_task("runner-error-task")  # should not raise

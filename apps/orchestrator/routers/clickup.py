@@ -186,7 +186,12 @@ async def clickup_webhook(
 
 async def _dispatch_task(task_id: str) -> None:
     """
-    Fetch task details from ClickUp and dispatch to GitHub Actions.
+    Fetch task details from ClickUp and dispatch to the configured target.
+
+    DISPATCH_TARGET controls routing:
+      - "github" (default): GitHub Actions via repository_dispatch
+      - "runner": Agent Runner service via RunnerClient HTTP API
+
     Runs as a background task — errors are logged but don't affect the webhook response.
     """
     log = logger.bind(task_id=task_id)
@@ -241,7 +246,45 @@ async def _dispatch_task(task_id: str) -> None:
         complexity=task.complexity,
     )
 
-    # ── Dispatch to GitHub Actions ─────────────────────────────────────────────
+    # ── Route to dispatch target ───────────────────────────────────────────────
+    dispatch_target = _get_env("DISPATCH_TARGET") or "github"
+
+    if dispatch_target == "runner":
+        await _dispatch_to_runner(task, github_token, log)
+    else:
+        await _dispatch_to_github(task, github_token, github_repo, log)
+
+
+async def _dispatch_to_runner(
+    task: AgentTask,
+    github_token: str,
+    log: structlog.stdlib.BoundLogger,
+) -> None:
+    """Dispatch task to the Agent Runner service."""
+    from apps.orchestrator.runner_client import RunnerClient, RunnerError
+
+    try:
+        runner = RunnerClient()
+        result = await runner.submit_task(task, github_token=github_token)
+        log.info(
+            "runner_dispatch_sent",
+            runner_task_id=result.get("task_id"),
+            status=result.get("status"),
+        )
+    except RunnerError as exc:
+        log.error("runner_dispatch_error", error=str(exc))
+        return
+
+    _metrics.WEBHOOK_DISPATCHES_TOTAL.labels(source="clickup").inc()
+
+
+async def _dispatch_to_github(
+    task: AgentTask,
+    github_token: str,
+    github_repo: str,
+    log: structlog.stdlib.BoundLogger,
+) -> None:
+    """Dispatch task to GitHub Actions via repository_dispatch."""
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
