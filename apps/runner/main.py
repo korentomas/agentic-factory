@@ -26,6 +26,8 @@ import structlog
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from apps.orchestrator.error_router import ErrorContext, ErrorRouter
+from apps.orchestrator.issue_creator import IssueCreator
 from apps.runner.audit import AuditLog
 from apps.runner.budget import BudgetExceededError, BudgetTracker
 from apps.runner.circuit_breaker import CircuitBreaker, CircuitOpenError
@@ -58,6 +60,10 @@ audit_log = AuditLog()
 
 # ── Circuit breakers (per-engine) ────────────────────────────────────────────
 _breakers: dict[str, CircuitBreaker] = {}
+
+# ── Error router (auto-creates GitHub issues on failure) ─────────────────────
+_issue_creator = IssueCreator()
+_error_router = ErrorRouter(issue_creator=_issue_creator)
 
 
 def get_breaker(engine_name: str) -> CircuitBreaker:
@@ -329,7 +335,7 @@ async def _get_github_app_token(log: structlog.stdlib.BoundLogger) -> str | None
 
 
 async def _execute_task(state: TaskState, github_token: str | None = None) -> None:
-    """Execute a task end-to-end: workspace → engine → commit → push.
+    """Execute a task end-to-end: workspace -> engine -> commit -> push.
 
     Integrates circuit breaker, budget enforcement, cancel_event,
     and audit trail at each lifecycle stage.
@@ -470,6 +476,18 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             task_id=task.task_id,
             engine=exc.engine,
         )
+        # Notify ErrorRouter for potential issue creation
+        try:
+            await _error_router.handle(
+                exc,
+                ErrorContext(
+                    component="runner",
+                    task_id=task.task_id,
+                    engine=exc.engine,
+                ),
+            )
+        except Exception as router_exc:
+            log.warning("task.error_router_failed", error=str(router_exc))
 
     except BudgetExceededError as exc:
         log.warning("task.budget_exceeded", spent=exc.spent, limit=exc.limit)
@@ -487,6 +505,19 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             spent=exc.spent,
             limit=exc.limit,
         )
+        # Notify ErrorRouter for potential issue creation
+        try:
+            await _error_router.handle(
+                exc,
+                ErrorContext(
+                    component="runner",
+                    task_id=task.task_id,
+                    engine=task.engine,
+                    model=task.model,
+                ),
+            )
+        except Exception as router_exc:
+            log.warning("task.error_router_failed", error=str(router_exc))
 
     except Exception as exc:
         log.error("task.failed", error=str(exc))
@@ -503,6 +534,20 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             task_id=task.task_id,
             error=str(exc),
         )
+        # Notify ErrorRouter for potential issue creation
+        try:
+            await _error_router.handle(
+                exc,
+                ErrorContext(
+                    component="runner",
+                    task_id=task.task_id,
+                    engine=task.engine,
+                    model=task.model,
+                    stderr_tail=state.result.stderr_tail if state.result else "",
+                ),
+            )
+        except Exception as router_exc:
+            log.warning("task.error_router_failed", error=str(router_exc))
 
     finally:
         # Cleanup workspace (unless LAILATOV_KEEP_WORKSPACES is set)
