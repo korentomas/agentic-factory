@@ -1,12 +1,15 @@
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   agentOutcomes,
+  chatMessages,
+  chatSessions,
   repositories,
   subscriptions,
   type OutcomeValue,
   type CheckStatus,
   type RiskTier,
+  type SubscriptionStatus,
 } from "@/lib/db/schema";
 import type {
   CheckHealth,
@@ -331,6 +334,47 @@ export async function getUserSubscription(
   return rows[0] ?? null;
 }
 
+/** Insert or update a subscription by stripeSubscriptionId. */
+export async function upsertSubscription(data: {
+  userId: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  stripePriceId: string;
+  planId: string;
+  status: SubscriptionStatus;
+  currentPeriodStart?: Date;
+  currentPeriodEnd?: Date;
+}) {
+  const existing = await db
+    .select({ id: subscriptions.id })
+    .from(subscriptions)
+    .where(eq(subscriptions.stripeSubscriptionId, data.stripeSubscriptionId))
+    .limit(1);
+
+  if (existing.length > 0) {
+    const [updated] = await db
+      .update(subscriptions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(subscriptions.id, existing[0].id))
+      .returning();
+    return updated;
+  }
+
+  const [inserted] = await db.insert(subscriptions).values(data).returning();
+  return inserted;
+}
+
+/** Update only the status of a subscription by stripeSubscriptionId. */
+export async function updateSubscriptionStatus(
+  stripeSubscriptionId: string,
+  status: SubscriptionStatus,
+) {
+  await db
+    .update(subscriptions)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(subscriptions.stripeSubscriptionId, stripeSubscriptionId));
+}
+
 /* ─────────────────────────────────────────────────────────
  * Repositories
  * ───────────────────────────────────────────────────────── */
@@ -434,4 +478,85 @@ export async function upsertOutcome(
     .values(values)
     .returning();
   return inserted;
+}
+
+/* ─────────────────────────────────────────────────────────
+ * Chat sessions & messages
+ * ───────────────────────────────────────────────────────── */
+
+/** Inferred chat session row type. */
+export type ChatSessionRow = typeof chatSessions.$inferSelect;
+
+/** Inferred chat message row type. */
+export type ChatMessageRow = typeof chatMessages.$inferSelect;
+
+/** Fetch recent chat sessions for a user. */
+export async function getChatSessions(
+  userId: string,
+  limit: number = 20,
+): Promise<ChatSessionRow[]> {
+  return db
+    .select()
+    .from(chatSessions)
+    .where(eq(chatSessions.userId, userId))
+    .orderBy(desc(chatSessions.updatedAt))
+    .limit(limit);
+}
+
+/** Fetch all messages in a chat session, ordered chronologically. */
+export async function getChatMessages(
+  sessionId: string,
+): Promise<ChatMessageRow[]> {
+  return db
+    .select()
+    .from(chatMessages)
+    .where(eq(chatMessages.sessionId, sessionId))
+    .orderBy(asc(chatMessages.createdAt));
+}
+
+/** Get the most recent chat session for a user, or create one if none exists. */
+export async function getOrCreateChatSession(
+  userId: string,
+): Promise<ChatSessionRow> {
+  const existing = await db
+    .select()
+    .from(chatSessions)
+    .where(eq(chatSessions.userId, userId))
+    .orderBy(desc(chatSessions.updatedAt))
+    .limit(1);
+
+  if (existing.length > 0) {
+    return existing[0];
+  }
+
+  const [created] = await db
+    .insert(chatSessions)
+    .values({ userId })
+    .returning();
+  return created;
+}
+
+/** Save a chat message and update the session's updatedAt timestamp. */
+export async function saveChatMessage(data: {
+  sessionId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  metadata?: Record<string, unknown>;
+}): Promise<ChatMessageRow> {
+  const [message] = await db
+    .insert(chatMessages)
+    .values({
+      sessionId: data.sessionId,
+      role: data.role,
+      content: data.content,
+      metadata: data.metadata ?? null,
+    })
+    .returning();
+
+  await db
+    .update(chatSessions)
+    .set({ updatedAt: new Date() })
+    .where(eq(chatSessions.id, data.sessionId));
+
+  return message;
 }

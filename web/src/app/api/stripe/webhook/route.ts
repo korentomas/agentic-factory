@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
+import {
+  upsertSubscription,
+  updateSubscriptionStatus,
+} from "@/lib/db/queries";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -28,18 +32,51 @@ export async function POST(request: NextRequest) {
 
   switch (event.type) {
     case "checkout.session.completed": {
-      const _session = event.data.object;
-      // TODO: Activate subscription for user
+      const session = event.data.object;
+      const userId = session.metadata?.userId;
+      const planId = session.metadata?.planId;
+
+      if (userId && session.subscription && session.customer) {
+        const subscriptionId =
+          typeof session.subscription === "string"
+            ? session.subscription
+            : session.subscription.id;
+        const customerId =
+          typeof session.customer === "string"
+            ? session.customer
+            : session.customer.id;
+
+        const stripeSubscription =
+          await stripe.subscriptions.retrieve(subscriptionId);
+
+        await upsertSubscription({
+          userId,
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: subscriptionId,
+          stripePriceId: stripeSubscription.items.data[0]?.price.id ?? "",
+          planId: planId ?? "starter",
+          status: "active",
+          currentPeriodStart: new Date(
+            stripeSubscription.current_period_start * 1000,
+          ),
+          currentPeriodEnd: new Date(
+            stripeSubscription.current_period_end * 1000,
+          ),
+        });
+      }
       break;
     }
     case "customer.subscription.updated": {
-      const _subscription = event.data.object;
-      // TODO: Handle subscription plan changes
+      const subscription = event.data.object;
+      const status = subscription.cancel_at_period_end
+        ? "cancelled"
+        : "active";
+      await updateSubscriptionStatus(subscription.id, status);
       break;
     }
     case "customer.subscription.deleted": {
-      const _subscription = event.data.object;
-      // TODO: Deactivate subscription for user
+      const subscription = event.data.object;
+      await updateSubscriptionStatus(subscription.id, "cancelled");
       break;
     }
     default:

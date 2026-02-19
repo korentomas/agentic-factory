@@ -204,6 +204,40 @@ export const repositories = pgTable(
   ],
 );
 
+/** Chat sessions. */
+export const chatSessions = pgTable(
+  "chat_sessions",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    repositoryId: text("repository_id").references(() => repositories.id, { onDelete: "set null" }),
+    title: text("title"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (session) => [
+    index("chat_sessions_user_id_idx").on(session.userId),
+    index("chat_sessions_updated_at_idx").on(session.updatedAt),
+  ],
+);
+
+/** Chat messages. */
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    sessionId: text("session_id").notNull().references(() => chatSessions.id, { onDelete: "cascade" }),
+    role: text("role").$type<"user" | "assistant" | "system">().notNull(),
+    content: text("content").notNull(),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (msg) => [
+    index("chat_messages_session_id_idx").on(msg.sessionId),
+    index("chat_messages_created_at_idx").on(msg.createdAt),
+  ],
+);
+
 /* ─────────────────────────────────────────────────────────
  * Relations
  * ───────────────────────────────────────────────────────── */
@@ -214,6 +248,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   subscriptions: many(subscriptions),
   agentOutcomes: many(agentOutcomes),
   repositories: many(repositories),
+  chatSessions: many(chatSessions),
 }));
 
 export const accountsRelations = relations(accounts, ({ one }) => ({
@@ -248,5 +283,24 @@ export const repositoriesRelations = relations(repositories, ({ one }) => ({
   user: one(users, {
     fields: [repositories.userId],
     references: [users.id],
+  }),
+}));
+
+export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => ({
+  user: one(users, {
+    fields: [chatSessions.userId],
+    references: [users.id],
+  }),
+  repository: one(repositories, {
+    fields: [chatSessions.repositoryId],
+    references: [repositories.id],
+  }),
+  messages: many(chatMessages),
+}));
+
+export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
+  session: one(chatSessions, {
+    fields: [chatMessages.sessionId],
+    references: [chatSessions.id],
   }),
 }));

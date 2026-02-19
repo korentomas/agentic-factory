@@ -14,6 +14,7 @@ import { CodeRetentionPanel } from "@/components/dashboard/code-retention";
 import { FileHotspotsPanel } from "@/components/dashboard/file-hotspots";
 import { ConnectRepo } from "@/components/dashboard/connect-repo";
 import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
+import { ChatPanel } from "@/components/dashboard/chat-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export const metadata: Metadata = {
@@ -142,11 +143,7 @@ export default async function Dashboard() {
                 ),
                 chat: (
                   <section>
-                    <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border-strong)] p-[var(--space-12)] text-center">
-                      <p className="text-[var(--color-text-muted)]">
-                        Chat coming soon.
-                      </p>
-                    </div>
+                    <ChatPanel />
                   </section>
                 ),
               }}
