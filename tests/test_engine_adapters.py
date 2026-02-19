@@ -18,6 +18,7 @@ from apps.runner.engines.aider import AiderAdapter
 from apps.runner.engines.claude_code import ClaudeCodeAdapter
 from apps.runner.engines.codex import CodexAdapter
 from apps.runner.engines.gemini_cli import GeminiCliAdapter
+from apps.runner.engines.pi import PiAdapter
 from apps.runner.engines.subprocess_util import SubprocessResult
 from apps.runner.models import RunnerTask
 
@@ -1614,4 +1615,466 @@ class TestCodexCommandBuilding:
             await CodexAdapter().run(_make_task())
 
         assert mock_run.call_args.kwargs["cwd"] == Path("/tmp/fake-workspace")
+
+
+# ── PiAdapter tests ─────────────────────────────────────────────────────────
+
+_PI_SUBPROCESS = "apps.runner.engines.pi.run_engine_subprocess"
+
+
+class TestPiCommandBuilding:
+    """PiAdapter: verify the constructed CLI command includes --model, --print, --no-session."""
+
+    @pytest.mark.asyncio
+    async def test_pi_includes_model_flag(self) -> None:
+        """Task model is passed as --model argument."""
+        task = _make_task(model="gpt-4.1")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            result = await PiAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        model_idx = cmd.index("--model") + 1
+        assert cmd[model_idx] == "gpt-4.1"
+        assert result.model == "gpt-4.1"
+
+    @pytest.mark.asyncio
+    async def test_pi_default_model_when_none(self) -> None:
+        """No model on task defaults to claude-sonnet-4-6."""
+        task = _make_task(model=None)
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            result = await PiAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        model_idx = cmd.index("--model") + 1
+        assert cmd[model_idx] == "claude-sonnet-4-6"
+        assert result.model == "claude-sonnet-4-6"
+
+    @pytest.mark.asyncio
+    async def test_pi_includes_print_flag(self) -> None:
+        """Command includes --print for headless output."""
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        cmd = mock_run.call_args.args[0]
+        assert "--print" in cmd
+
+    @pytest.mark.asyncio
+    async def test_pi_includes_no_session_flag(self) -> None:
+        """Command includes --no-session for stateless execution."""
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        cmd = mock_run.call_args.args[0]
+        assert "--no-session" in cmd
+
+    @pytest.mark.asyncio
+    async def test_pi_passes_description_as_positional_arg(self) -> None:
+        """Task description is passed as the last positional argument."""
+        task = _make_task(description="Refactor the parser")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd[-1] == "Refactor the parser"
+
+    @pytest.mark.asyncio
+    async def test_pi_passes_workspace_as_cwd(self) -> None:
+        """Workspace path is passed as cwd to subprocess."""
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        assert mock_run.call_args.kwargs["cwd"] == Path("/tmp/fake-workspace")
+
+    @pytest.mark.asyncio
+    async def test_pi_passes_timeout_seconds(self) -> None:
+        """Task timeout_seconds is forwarded to subprocess."""
+        task = _make_task(timeout_seconds=1200)
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(task)
+
+        assert mock_run.call_args.kwargs["timeout_seconds"] == 1200
+
+
+class TestPiEnvOverrides:
+    """PiAdapter: all 6 provider API keys are injected when set."""
+
+    @pytest.mark.asyncio
+    async def test_pi_injects_anthropic_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify ANTHROPIC_API_KEY is injected."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-pi-test")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["ANTHROPIC_API_KEY"] == "sk-ant-pi-test"
+
+    @pytest.mark.asyncio
+    async def test_pi_injects_openai_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify OPENAI_API_KEY is injected."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-pi-test")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["OPENAI_API_KEY"] == "sk-openai-pi-test"
+
+    @pytest.mark.asyncio
+    async def test_pi_injects_gemini_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify GEMINI_API_KEY is injected."""
+        monkeypatch.setenv("GEMINI_API_KEY", "AIza-pi-test")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["GEMINI_API_KEY"] == "AIza-pi-test"
+
+    @pytest.mark.asyncio
+    async def test_pi_injects_openrouter_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify OPENROUTER_API_KEY is injected."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-pi-test")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["OPENROUTER_API_KEY"] == "sk-or-pi-test"
+
+    @pytest.mark.asyncio
+    async def test_pi_injects_groq_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify GROQ_API_KEY is injected."""
+        monkeypatch.setenv("GROQ_API_KEY", "gsk-pi-test")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["GROQ_API_KEY"] == "gsk-pi-test"
+
+    @pytest.mark.asyncio
+    async def test_pi_injects_mistral_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify MISTRAL_API_KEY is injected."""
+        monkeypatch.setenv("MISTRAL_API_KEY", "sk-mistral-pi-test")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["MISTRAL_API_KEY"] == "sk-mistral-pi-test"
+
+    @pytest.mark.asyncio
+    async def test_pi_all_six_keys_injected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify all 6 provider keys are injected when all are set."""
+        keys = {
+            "ANTHROPIC_API_KEY": "sk-ant",
+            "OPENAI_API_KEY": "sk-oai",
+            "GEMINI_API_KEY": "AIza",
+            "OPENROUTER_API_KEY": "sk-or",
+            "GROQ_API_KEY": "gsk",
+            "MISTRAL_API_KEY": "sk-mis",
+        }
+        for k, v in keys.items():
+            monkeypatch.setenv(k, v)
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        for k, v in keys.items():
+            assert env_overrides[k] == v
+
+    @pytest.mark.asyncio
+    async def test_pi_unset_key_omitted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When a provider key is unset, it is not injected."""
+        for k in (
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "OPENROUTER_API_KEY",
+            "GROQ_API_KEY",
+            "MISTRAL_API_KEY",
+        ):
+            monkeypatch.delenv(k, raising=False)
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        for k in (
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "OPENROUTER_API_KEY",
+            "GROQ_API_KEY",
+            "MISTRAL_API_KEY",
+        ):
+            assert k not in env_overrides
+
+    @pytest.mark.asyncio
+    async def test_pi_task_env_vars_are_merged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Task-level env_vars are included alongside injected API keys."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-merge")
+        task = _make_task(env_vars={"MY_CUSTOM": "value"})
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(task)
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["MY_CUSTOM"] == "value"
+        assert env_overrides["ANTHROPIC_API_KEY"] == "sk-ant-merge"
+
+
+class TestPiSuccess:
+    """PiAdapter: basic success, failure, timeout, and cancel scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_pi_success_returns_result(self) -> None:
+        """Mock subprocess success produces status='success'."""
+        mock_result = _subprocess_ok(stdout="Edits applied!", duration_ms=20000)
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            result = await PiAdapter().run(_make_task())
+
+        assert result.status == "success"
+        assert result.engine == "oh-my-pi"
+        assert result.duration_ms == 20000
+        assert result.error_message is None
+
+    @pytest.mark.asyncio
+    async def test_pi_failure_returns_error(self) -> None:
+        """Non-zero exit code produces status='failure' with error."""
+        mock_result = _subprocess_fail(
+            return_code=1,
+            stderr="Error: model not found",
+        )
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            result = await PiAdapter().run(_make_task())
+
+        assert result.status == "failure"
+        assert result.error_message is not None
+        assert "model not found" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_pi_timeout_returns_timeout_status(self) -> None:
+        """Mock subprocess with timed_out=True produces status='timeout'."""
+        mock_result = _subprocess_timeout(duration_ms=3600000)
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            result = await PiAdapter().run(_make_task())
+
+        assert result.status == "timeout"
+        assert result.duration_ms == 3600000
+        assert result.engine == "oh-my-pi"
+        assert result.error_message is None
+
+    @pytest.mark.asyncio
+    async def test_pi_cancelled_returns_cancelled_status(self) -> None:
+        """Mock subprocess with cancelled=True produces status='cancelled'."""
+        mock_result = _subprocess_cancelled(duration_ms=9000)
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            result = await PiAdapter().run(_make_task())
+
+        assert result.status == "cancelled"
+        assert result.duration_ms == 9000
+        assert result.engine == "oh-my-pi"
+        assert result.error_message is None
+
+    @pytest.mark.asyncio
+    async def test_pi_passes_cancel_event(self) -> None:
+        """Verify cancel_event kwarg is passed through to run_engine_subprocess."""
+        mock_result = _subprocess_ok(stdout="Done!")
+        cancel_event = asyncio.Event()
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(_make_task(), cancel_event=cancel_event)
+
+        assert mock_run.call_count == 1
+        call_kwargs = mock_run.call_args.kwargs
+        assert "cancel_event" in call_kwargs
+        assert call_kwargs["cancel_event"] is cancel_event
+
+
+class TestPiNoWorkspace:
+    """PiAdapter: tasks without workspace_path are rejected."""
+
+    @pytest.mark.asyncio
+    async def test_pi_no_workspace_returns_failure(self) -> None:
+        """Task without workspace_path set returns immediate failure."""
+        task = _make_task_no_workspace()
+        result = await PiAdapter().run(task)
+
+        assert result.status == "failure"
+        assert result.error_message is not None
+        assert "workspace" in result.error_message.lower()
+        assert result.engine == "oh-my-pi"
+
+
+class TestPiSandboxWiring:
+    """PiAdapter: sandbox_mode wraps command in Docker."""
+
+    @pytest.mark.asyncio
+    async def test_pi_sandbox_wraps_command(self) -> None:
+        """When sandbox_mode=True, cmd starts with 'docker' instead of 'omp'."""
+        task = _make_task(
+            sandbox_mode=True,
+            sandbox_image="lailatov/sandbox:python",
+        )
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == "docker"
+        assert "run" in cmd
+        assert "lailatov/sandbox:python" in cmd
+
+    @pytest.mark.asyncio
+    async def test_pi_no_sandbox_uses_omp_command(self) -> None:
+        """When sandbox_mode=False (default), cmd starts with 'omp'."""
+        task = _make_task(sandbox_mode=False)
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _PI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await PiAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == "omp"
 

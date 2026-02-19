@@ -24,6 +24,15 @@ SUPPORTED_MODELS: list[str] = ["*"]
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
 
+_PROVIDER_ENV_KEYS = (
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+)
+
 
 def _get_env(key: str, default: str = "") -> str:
     """Read env var at call time."""
@@ -71,13 +80,15 @@ class PiAdapter:
         cmd: list[str] = [
             "omp",
             "--no-session",
+            "--print",
+            "--model", model,
             task.description,
         ]
 
         env_overrides: dict[str, str] = {**task.env_vars}
 
-        # Inject API keys for the most common providers
-        for env_key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
+        # Inject API keys for all known providers
+        for env_key in _PROVIDER_ENV_KEYS:
             value = _get_env(env_key)
             if value:
                 env_overrides[env_key] = value
