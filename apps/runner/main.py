@@ -51,6 +51,34 @@ def _get_env(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+# ── Callback dispatcher ──────────────────────────────────────────────────────
+
+
+async def _send_callback(
+    callback_url: str | None,
+    payload: dict[str, object],
+    log: structlog.stdlib.BoundLogger,
+) -> None:
+    """POST a lifecycle event to the callback URL. Best-effort, never blocks."""
+    if not callback_url:
+        return
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                callback_url,
+                json=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {_get_env('RUNNER_API_KEY')}",
+                },
+            )
+            log.debug("callback.sent", url=callback_url, status=resp.status_code)
+    except Exception as exc:
+        log.warning("callback.failed", url=callback_url, error=str(exc))
+
+
 # ── In-memory task store ─────────────────────────────────────────────────────
 # For v1, tasks are stored in memory. Future: Redis or database.
 _tasks: dict[str, TaskState] = {}
@@ -349,6 +377,9 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
         state.status = TaskStatus.RUNNING
         state.started_at = time.monotonic()
         audit_log.record("task.started", task_id=task.task_id)
+        await _send_callback(task.callback_url, {
+            "type": "status", "status": "running", "task_id": task.task_id,
+        }, log)
         log.info("task.workspace.creating")
 
         # Use GitHub App token rotation if no static token provided
@@ -380,6 +411,11 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             task_id=task.task_id,
             engine=engine.name,
         )
+        await _send_callback(task.callback_url, {
+            "type": "message", "role": "system",
+            "content": f"Engine selected: {engine.name}",
+            "task_id": task.task_id,
+        }, log)
         log.info("task.engine.selected", engine=engine.name)
 
         # Inject workspace path into task for the engine
@@ -448,6 +484,16 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             cost_usd=result.cost_usd,
         )
         log.info("task.done", status=state.status.value)
+        await _send_callback(task.callback_url, {
+            "type": "complete", "task_id": task.task_id,
+            "status": state.status.value,
+            "commitSha": result.commit_sha,
+            "costUsd": result.cost_usd,
+            "durationMs": result.duration_ms,
+            "filesChanged": result.files_changed,
+            "engine": result.engine,
+            "model": result.model,
+        }, log)
 
     except asyncio.CancelledError:
         log.warning("task.cancelled")
@@ -460,6 +506,9 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             error_message="Task was cancelled",
         )
         audit_log.record("task.cancelled", task_id=task.task_id)
+        await _send_callback(task.callback_url, {
+            "type": "cancelled", "task_id": task.task_id,
+        }, log)
 
     except CircuitOpenError as exc:
         log.warning("task.circuit_open", engine=exc.engine, retry_after=exc.retry_after)
@@ -488,6 +537,10 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             )
         except Exception as router_exc:
             log.warning("task.error_router_failed", error=str(router_exc))
+        await _send_callback(task.callback_url, {
+            "type": "failed", "task_id": task.task_id,
+            "errorMessage": str(exc),
+        }, log)
 
     except BudgetExceededError as exc:
         log.warning("task.budget_exceeded", spent=exc.spent, limit=exc.limit)
@@ -518,6 +571,10 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             )
         except Exception as router_exc:
             log.warning("task.error_router_failed", error=str(router_exc))
+        await _send_callback(task.callback_url, {
+            "type": "failed", "task_id": task.task_id,
+            "errorMessage": str(exc),
+        }, log)
 
     except Exception as exc:
         log.error("task.failed", error=str(exc))
@@ -548,6 +605,10 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             )
         except Exception as router_exc:
             log.warning("task.error_router_failed", error=str(router_exc))
+        await _send_callback(task.callback_url, {
+            "type": "failed", "task_id": task.task_id,
+            "errorMessage": str(exc),
+        }, log)
 
     finally:
         # Cleanup workspace (unless LAILATOV_KEEP_WORKSPACES is set)
