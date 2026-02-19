@@ -2,14 +2,16 @@
 Tests for apps.orchestrator.main — FastAPI application entry point.
 
 Covers: health endpoint, 404 handler, request logging middleware,
-request ID middleware, docs endpoint configuration, and structured
-logging setup.
+request ID middleware, docs endpoint configuration, structured logging
+setup, and risk-policy.json validation.
 """
 
 from __future__ import annotations
 
 import importlib
+import json
 import uuid
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -295,3 +297,207 @@ def test_ready_returns_503_with_all_missing_vars_when_none_set(
     body = response.json()
     assert body["status"] == "not_ready"
     assert set(body["missing"]) == {"CLICKUP_API_TOKEN", "SLACK_WEBHOOK_URL"}
+
+
+# ── Risk policy validation ──────────────────────────────────────────────────
+
+
+class TestValidateRiskPolicy:
+    """Tests for _validate_risk_policy — schema checks on risk-policy.json."""
+
+    def test_valid_policy_returns_no_errors(self, tmp_path: Path) -> None:
+        """A well-formed risk-policy.json returns an empty error list."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": {
+                "high": ["apps/auth/**"],
+                "medium": ["apps/routers/**"],
+                "low": ["docs/**"],
+            },
+            "mergePolicy": {
+                "high": {"requiredChecks": ["tests"]},
+                "medium": {"requiredChecks": ["tests"]},
+                "low": {"requiredChecks": []},
+            },
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert errors == []
+
+    def test_missing_file_returns_error(self, tmp_path: Path) -> None:
+        """A nonexistent file returns a single error."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        errors = _validate_risk_policy(str(tmp_path / "nonexistent.json"))
+        assert len(errors) == 1
+        assert "not found" in errors[0]
+
+    def test_invalid_json_returns_error(self, tmp_path: Path) -> None:
+        """Malformed JSON returns a single error."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text("{invalid json")
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert len(errors) == 1
+        assert "not valid JSON" in errors[0]
+
+    def test_non_object_root_returns_error(self, tmp_path: Path) -> None:
+        """A JSON array at root level returns an error."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text("[]")
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert len(errors) == 1
+        assert "root must be a JSON object" in errors[0]
+
+    def test_missing_risk_tier_rules_returns_error(self, tmp_path: Path) -> None:
+        """Missing riskTierRules key is reported."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {"mergePolicy": {"high": {}, "medium": {}, "low": {}}}
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("riskTierRules" in e for e in errors)
+
+    def test_missing_merge_policy_returns_error(self, tmp_path: Path) -> None:
+        """Missing mergePolicy key is reported."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": {"high": [], "medium": [], "low": []},
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("mergePolicy" in e for e in errors)
+
+    def test_invalid_tier_name_returns_error(self, tmp_path: Path) -> None:
+        """Tier names not in {high, medium, low} are rejected."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": {"critical": ["apps/**"]},
+            "mergePolicy": {"critical": {}},
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("Invalid tier names" in e for e in errors)
+        assert any("critical" in e for e in errors)
+
+    def test_merge_policy_missing_tier_returns_error(self, tmp_path: Path) -> None:
+        """mergePolicy must have the same keys as riskTierRules."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": {"high": [], "medium": [], "low": []},
+            "mergePolicy": {"high": {}, "medium": {}},
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("missing tiers" in e for e in errors)
+        assert any("low" in e for e in errors)
+
+    def test_merge_policy_extra_tier_returns_error(self, tmp_path: Path) -> None:
+        """Extra keys in mergePolicy not in riskTierRules are reported."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": {"high": [], "low": []},
+            "mergePolicy": {"high": {}, "low": {}, "medium": {}},
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("extra tiers" in e for e in errors)
+
+    def test_non_list_patterns_returns_error(self, tmp_path: Path) -> None:
+        """Patterns must be arrays, not strings."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": {"high": "not-a-list", "medium": [], "low": []},
+            "mergePolicy": {"high": {}, "medium": {}, "low": {}},
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("must be an array" in e for e in errors)
+
+    def test_empty_pattern_string_returns_error(self, tmp_path: Path) -> None:
+        """Empty strings in pattern arrays are caught."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": {"high": ["", "apps/**"], "medium": [], "low": []},
+            "mergePolicy": {"high": {}, "medium": {}, "low": {}},
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("invalid pattern" in e for e in errors)
+
+    def test_non_string_pattern_returns_error(self, tmp_path: Path) -> None:
+        """Non-string items in pattern arrays are caught."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": {"high": [123], "medium": [], "low": []},
+            "mergePolicy": {"high": {}, "medium": {}, "low": {}},
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("invalid pattern" in e for e in errors)
+
+    def test_real_risk_policy_is_valid(self) -> None:
+        """The actual risk-policy.json in the repo passes validation."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        errors = _validate_risk_policy("risk-policy.json")
+        assert errors == [], f"risk-policy.json has validation errors: {errors}"
+
+    def test_risk_tier_rules_not_dict_returns_error(self, tmp_path: Path) -> None:
+        """riskTierRules must be a dict, not an array."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": ["high", "medium", "low"],
+            "mergePolicy": {"high": {}, "medium": {}, "low": {}},
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("riskTierRules must be a JSON object" in e for e in errors)
+
+    def test_merge_policy_not_dict_returns_error(self, tmp_path: Path) -> None:
+        """mergePolicy must be a dict, not an array."""
+        from apps.orchestrator.main import _validate_risk_policy
+
+        policy = {
+            "riskTierRules": {"high": [], "medium": [], "low": []},
+            "mergePolicy": "not-a-dict",
+        }
+        policy_file = tmp_path / "risk-policy.json"
+        policy_file.write_text(json.dumps(policy))
+
+        errors = _validate_risk_policy(str(policy_file))
+        assert any("mergePolicy must be a JSON object" in e for e in errors)
