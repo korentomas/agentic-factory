@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { getTaskThread, getTaskMessages } from "@/lib/db/queries";
+import { getTaskThread, getTaskMessages, getTaskPlans } from "@/lib/db/queries";
 import type { TaskThreadStatus } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -75,9 +75,10 @@ export async function GET(
         return;
       }
 
-      // Poll for new messages and status changes
+      // Poll for new messages, status changes, and plan updates
       let lastMessageCount = messages.length;
       let lastStatus = thread.status;
+      let lastPlanCount = 0;
 
       const poll = async () => {
         while (!cancelled) {
@@ -105,6 +106,18 @@ export async function GET(
                 });
               }
               lastMessageCount = currentMessages.length;
+            }
+
+            // Check for new/updated plans
+            const plans = await getTaskPlans(id);
+            if (plans.length > lastPlanCount) {
+              const latestPlan = plans[plans.length - 1];
+              send("plan", {
+                revision: latestPlan.revision,
+                steps: latestPlan.steps,
+                createdBy: latestPlan.createdBy,
+              });
+              lastPlanCount = plans.length;
             }
 
             // Check for status change

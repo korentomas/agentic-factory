@@ -4,9 +4,10 @@ vi.mock("@/lib/db/queries", () => ({
   getTaskThread: vi.fn(),
   updateTaskThread: vi.fn(),
   saveTaskMessage: vi.fn(),
+  saveTaskPlan: vi.fn(),
 }));
 
-import { getTaskThread, updateTaskThread, saveTaskMessage } from "@/lib/db/queries";
+import { getTaskThread, updateTaskThread, saveTaskMessage, saveTaskPlan } from "@/lib/db/queries";
 import { POST } from "../route";
 
 const mockThread = {
@@ -33,6 +34,7 @@ describe("POST /api/tasks/[id]/webhook", () => {
     vi.mocked(getTaskThread).mockResolvedValue(mockThread as never);
     vi.mocked(updateTaskThread).mockResolvedValue(mockThread as never);
     vi.mocked(saveTaskMessage).mockResolvedValue({ id: "msg-1" } as never);
+    vi.mocked(saveTaskPlan).mockResolvedValue({ id: "plan-1" } as never);
   });
 
   it("rejects missing auth", async () => {
@@ -125,6 +127,30 @@ describe("POST /api/tasks/[id]/webhook", () => {
     const res = await POST(req, { params: Promise.resolve({ id: "thread-1" }) });
     expect(res.status).toBe(200);
     expect(updateTaskThread).toHaveBeenCalledWith("thread-1", { status: "cancelled" });
+  });
+
+  it("saves plan on plan event", async () => {
+    const req = makeRequest({
+      type: "plan",
+      task_id: "t1",
+      revision: 1,
+      steps: [
+        { title: "Clone repo", description: "Clone the repository", status: "completed" },
+        { title: "Fix bug", description: "Fix the add function", status: "pending" },
+      ],
+      createdBy: "agent",
+    });
+    const res = await POST(req, { params: Promise.resolve({ id: "thread-1" }) });
+    expect(res.status).toBe(200);
+    expect(saveTaskPlan).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      revision: 1,
+      steps: [
+        { title: "Clone repo", description: "Clone the repository", status: "completed" },
+        { title: "Fix bug", description: "Fix the add function", status: "pending" },
+      ],
+      createdBy: "agent",
+    });
   });
 
   it("rejects unknown event type", async () => {

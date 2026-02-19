@@ -16,24 +16,25 @@ interface TerminalInputProps {
 }
 
 export function TerminalInput({ repos, onSubmit, disabled }: TerminalInputProps) {
-  const [selectedRepo, setSelectedRepo] = useState(repos[0]?.url ?? "");
+  const [repoUrl, setRepoUrl] = useState(repos[0]?.url ?? "");
   const [branch, setBranch] = useState("main");
   const [description, setDescription] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = useCallback(() => {
     const text = description.trim();
-    if (!text || !selectedRepo || disabled) return;
+    const url = repoUrl.trim();
+    if (!text || !url || disabled) return;
 
     const firstLine = text.split("\n")[0] ?? text;
     onSubmit({
-      repoUrl: selectedRepo,
+      repoUrl: url,
       branch,
       title: firstLine.slice(0, 120),
       description: text,
     });
     setDescription("");
-  }, [description, selectedRepo, branch, disabled, onSubmit]);
+  }, [description, repoUrl, branch, disabled, onSubmit]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -45,8 +46,8 @@ export function TerminalInput({ repos, onSubmit, disabled }: TerminalInputProps)
     [handleSubmit],
   );
 
-  const selectedRepoName =
-    repos.find((r) => r.url === selectedRepo)?.fullName ?? "Select repo";
+  const displayName = repos.find((r) => r.url === repoUrl)?.fullName
+    ?? (repoUrl.replace("https://github.com/", "") || "owner/repo");
 
   return (
     <div
@@ -59,18 +60,28 @@ export function TerminalInput({ repos, onSubmit, disabled }: TerminalInputProps)
       <div className="flex items-center gap-[var(--space-2)] border-b border-[var(--color-border)] px-[var(--space-4)] py-[var(--space-3)]">
         <Terminal className="h-4 w-4 text-[var(--color-text-muted)]" />
 
-        <select
-          value={selectedRepo}
-          onChange={(e) => setSelectedRepo(e.target.value)}
-          disabled={disabled}
-          className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] px-[var(--space-2)] py-[var(--space-1)] font-mono text-[var(--text-xs)] text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
-        >
-          {repos.map((repo) => (
-            <option key={repo.url} value={repo.url}>
-              {repo.fullName}
-            </option>
-          ))}
-        </select>
+        {repos.length > 0 ? (
+          <select
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
+            disabled={disabled}
+            className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] px-[var(--space-2)] py-[var(--space-1)] font-mono text-[var(--text-xs)] text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
+          >
+            {repos.map((repo) => (
+              <option key={repo.url} value={repo.url}>
+                {repo.fullName}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
+            disabled={disabled}
+            placeholder="https://github.com/owner/repo"
+            className="min-w-0 flex-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] px-[var(--space-2)] py-[var(--space-1)] font-mono text-[var(--text-xs)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+          />
+        )}
 
         <span className="text-[var(--color-text-muted)]">/</span>
 
@@ -99,7 +110,7 @@ export function TerminalInput({ repos, onSubmit, disabled }: TerminalInputProps)
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={!description.trim() || !selectedRepo || disabled}
+          disabled={!description.trim() || !repoUrl.trim() || disabled}
           aria-label="Submit task"
           className="absolute right-[var(--space-3)] bottom-[var(--space-3)] rounded-[var(--radius-md)] bg-[var(--color-accent)] p-[var(--space-2)] text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
         >
@@ -114,7 +125,7 @@ export function TerminalInput({ repos, onSubmit, disabled }: TerminalInputProps)
             {"\u2318"}Enter
           </kbd>{" "}
           to submit &middot; Agent will create a branch from{" "}
-          <span className="font-mono">{selectedRepoName}</span>
+          <span className="font-mono">{displayName}</span>
         </p>
       </div>
     </div>

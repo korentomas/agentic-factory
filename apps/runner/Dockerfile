@@ -9,9 +9,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 COPY pyproject.toml ./
 COPY apps/ apps/
 
-# Create empty README so hatchling doesn't fail
-RUN touch README.md
-
 # Install dependencies
 RUN pip install --no-cache-dir .
 

@@ -78,6 +78,36 @@ describe("TerminalInput", () => {
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
+  it("shows text input for repo URL when no repos provided", () => {
+    render(<TerminalInput repos={[]} onSubmit={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText("https://github.com/owner/repo");
+    expect(input).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("submits with manually typed repo URL", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(<TerminalInput repos={[]} onSubmit={onSubmit} />);
+
+    const repoInput = screen.getByPlaceholderText("https://github.com/owner/repo");
+    await user.type(repoInput, "https://github.com/test/repo");
+
+    const textarea = screen.getByPlaceholderText("Describe the task for the agent...");
+    await user.type(textarea, "Fix the bug");
+
+    const button = screen.getByRole("button", { name: /submit task/i });
+    await user.click(button);
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      repoUrl: "https://github.com/test/repo",
+      branch: "main",
+      title: "Fix the bug",
+      description: "Fix the bug",
+    });
+  });
+
   it("submit button disabled when disabled prop is true", async () => {
     const user = userEvent.setup();
     render(<TerminalInput repos={REPOS} onSubmit={vi.fn()} disabled />);

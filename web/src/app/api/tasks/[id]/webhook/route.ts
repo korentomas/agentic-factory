@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getTaskThread, updateTaskThread, saveTaskMessage } from "@/lib/db/queries";
-import type { TaskThreadStatus, TaskMessageRole } from "@/lib/db/schema";
+import { getTaskThread, updateTaskThread, saveTaskMessage, saveTaskPlan } from "@/lib/db/queries";
+import type { TaskThreadStatus, TaskMessageRole, TaskPlanStepStatus } from "@/lib/db/schema";
 
 /** Validate Runner API key from Authorization header. */
 function validateAuth(req: Request): boolean {
@@ -81,6 +81,21 @@ export async function POST(
         threadId: id,
         role: "system",
         content: "Task was cancelled.",
+      });
+      break;
+    }
+
+    case "plan": {
+      const steps = (body.steps ?? []) as Array<{
+        title: string;
+        description: string;
+        status: TaskPlanStepStatus;
+      }>;
+      await saveTaskPlan({
+        threadId: id,
+        revision: body.revision ?? 1,
+        steps,
+        createdBy: body.createdBy ?? "agent",
       });
       break;
     }
