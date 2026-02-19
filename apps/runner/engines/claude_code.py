@@ -41,8 +41,11 @@ class ClaudeCodeAdapter:
     ``npm i -g @anthropic-ai/claude-code``).
 
     Environment:
-        ANTHROPIC_API_KEY:  Required. Anthropic API key.
-        ANTHROPIC_BASE_URL: Optional. Override for OpenRouter, etc.
+        ANTHROPIC_API_KEY:      Required. Anthropic API key (empty string for OpenRouter).
+        ANTHROPIC_BASE_URL:     Optional. Override for OpenRouter, LiteLLM proxy, etc.
+        ANTHROPIC_AUTH_TOKEN:   Optional. Bearer token for OpenRouter/proxy auth.
+        CLAUDE_CODE_USE_BEDROCK: Optional. Set to "1" to use Amazon Bedrock.
+        CLAUDE_CODE_USE_VERTEX:  Optional. Set to "1" to use Google Vertex AI.
     """
 
     @property
@@ -82,6 +85,14 @@ class ClaudeCodeAdapter:
         base_url = _get_env("ANTHROPIC_BASE_URL")
         if base_url:
             env_overrides["ANTHROPIC_BASE_URL"] = base_url
+        auth_token = _get_env("ANTHROPIC_AUTH_TOKEN")
+        if auth_token:
+            env_overrides["ANTHROPIC_AUTH_TOKEN"] = auth_token
+
+        for env_key in ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"):
+            value = _get_env(env_key)
+            if value:
+                env_overrides[env_key] = value
 
         workspace = task.workspace_path if hasattr(task, "workspace_path") else None
         if workspace is None:
