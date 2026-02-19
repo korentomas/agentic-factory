@@ -83,14 +83,22 @@ export default async function Dashboard() {
 
       <main className="mx-auto max-w-7xl px-[var(--space-6)] py-[var(--space-8)]">
         {/* Header */}
-        <div className="mb-[var(--space-8)]">
-          <h1 className="text-[var(--text-3xl)] font-semibold tracking-tight">
-            Welcome back, {user.name?.split(" ")[0] || "developer"}
-          </h1>
-          <p className="mt-[var(--space-2)] text-[var(--color-text-secondary)]">
-            Your autonomous code factory is{" "}
-            {hasData ? "running" : "ready to start"}.
-          </p>
+        <div className="mb-[var(--space-8)] flex items-center justify-between">
+          <div>
+            <h1 className="text-[var(--text-3xl)] font-semibold tracking-tight">
+              Welcome back, {user.name?.split(" ")[0] || "developer"}
+            </h1>
+            <p className="mt-[var(--space-2)] text-[var(--color-text-secondary)]">
+              Your autonomous code factory is{" "}
+              {hasData ? "running" : "ready to start"}.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/tasks"
+            className="rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
+          >
+            Open Tasks
+          </Link>
         </div>
 
         {/* Stats overview */}
