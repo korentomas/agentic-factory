@@ -11,8 +11,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.45",
+    "@ai-sdk/react": "^3.0.93",
     "@auth/drizzle-adapter": "^1.11.1",
     "@stripe/stripe-js": "^4.0.0",
+    "ai": "^6.0.91",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "drizzle-orm": "^0.45.1",

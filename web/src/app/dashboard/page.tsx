@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 import { auth, signOut } from "@/lib/auth";
 import { loadDashboardData } from "@/lib/data";
 import { StatsCards } from "@/components/dashboard/stats-cards";
@@ -12,6 +13,7 @@ import { LearningPanel } from "@/components/dashboard/learning-panel";
 import { CodeRetentionPanel } from "@/components/dashboard/code-retention";
 import { FileHotspotsPanel } from "@/components/dashboard/file-hotspots";
 import { ConnectRepo } from "@/components/dashboard/connect-repo";
+import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export const metadata: Metadata = {
@@ -28,7 +30,7 @@ export default async function Dashboard() {
   }
 
   const user = session.user;
-  const accessToken = (session as { accessToken?: string }).accessToken;
+  const accessToken = session.accessToken;
   const data = await loadDashboardData(accessToken);
   const hasData = data.outcomes.length > 0;
 
@@ -96,63 +98,65 @@ export default async function Dashboard() {
         </section>
 
         {hasData ? (
-          <>
-            {/* PR History */}
-            <section className="mb-[var(--space-8)]">
-              <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
-                Pull Requests
-              </h2>
-              <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-6)]">
-                <PRTable prs={data.prs} />
-              </div>
-            </section>
-
-            {/* Engines & Models */}
-            <section className="mb-[var(--space-8)]">
-              <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
-                Engines &amp; Models
-              </h2>
-              <EngineBreakdownPanel
-                engines={data.engines}
-                models={data.models}
-              />
-            </section>
-
-            {/* Pipeline Health & Risk Tiers */}
-            <section className="mb-[var(--space-8)]">
-              <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
-                Pipeline Health
-              </h2>
-              <PipelineHealth checks={data.checks} risks={data.risks} />
-            </section>
-
-            {/* Code Retention & File Hotspots */}
-            <section className="mb-[var(--space-8)]">
-              <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
-                Code Quality
-              </h2>
-              <div className="grid grid-cols-1 gap-[var(--space-6)] lg:grid-cols-2">
-                <CodeRetentionPanel retention={data.codeRetention} />
-                <FileHotspotsPanel hotspots={data.fileHotspots} />
-              </div>
-            </section>
-
-            {/* Self-Learning */}
-            <section className="mb-[var(--space-8)]">
-              <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
-                Self-Learning
-              </h2>
-              <LearningPanel learning={data.learning} />
-            </section>
-          </>
+          <Suspense fallback={null}>
+            <DashboardTabs>
+              {{
+                overview: (
+                  <>
+                    <section className="mb-[var(--space-8)]">
+                      <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
+                        Pipeline Health
+                      </h2>
+                      <PipelineHealth checks={data.checks} risks={data.risks} />
+                    </section>
+                    <section className="mb-[var(--space-8)]">
+                      <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
+                        Code Quality
+                      </h2>
+                      <div className="grid grid-cols-1 gap-[var(--space-6)] lg:grid-cols-2">
+                        <CodeRetentionPanel retention={data.codeRetention} />
+                        <FileHotspotsPanel hotspots={data.fileHotspots} />
+                      </div>
+                    </section>
+                  </>
+                ),
+                prs: (
+                  <section>
+                    <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-6)]">
+                      <PRTable prs={data.prs} />
+                    </div>
+                  </section>
+                ),
+                engines: (
+                  <section>
+                    <EngineBreakdownPanel
+                      engines={data.engines}
+                      models={data.models}
+                    />
+                  </section>
+                ),
+                learning: (
+                  <section>
+                    <LearningPanel learning={data.learning} />
+                  </section>
+                ),
+                chat: (
+                  <section>
+                    <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border-strong)] p-[var(--space-12)] text-center">
+                      <p className="text-[var(--color-text-muted)]">
+                        Chat coming soon.
+                      </p>
+                    </div>
+                  </section>
+                ),
+              }}
+            </DashboardTabs>
+          </Suspense>
         ) : (
           <>
-            {/* Empty state: Connect repo */}
             <section className="mb-[var(--space-8)]">
               <ConnectRepo />
             </section>
-
-            {/* Empty activity state */}
             <section>
               <h2 className="text-[var(--text-xl)] font-medium">
                 Recent activity

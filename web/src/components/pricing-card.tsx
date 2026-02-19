@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { CheckoutButton } from "@/components/checkout-button";
 
 interface PricingCardProps {
   name: string;
@@ -9,6 +10,7 @@ interface PricingCardProps {
   cta: string;
   highlighted?: boolean;
   href: string;
+  planId?: string;
 }
 
 export function PricingCard({
@@ -20,6 +22,7 @@ export function PricingCard({
   cta,
   highlighted = false,
   href,
+  planId,
 }: PricingCardProps) {
   return (
     <div
@@ -78,18 +81,24 @@ export function PricingCard({
         ))}
       </ul>
 
-      <a
-        href={href}
-        className={cn(
-          "block rounded-[var(--radius-md)] py-[var(--space-3)] text-center text-[var(--text-sm)] font-medium",
-          "transition-colors duration-[var(--duration-fast)]",
-          highlighted
-            ? "bg-[var(--color-bg-surface)] text-[var(--color-accent)] hover:bg-[var(--color-bg)]"
-            : "bg-[var(--color-accent)] text-[var(--color-text-inverse)] hover:bg-[var(--color-accent-hover)]"
-        )}
-      >
-        {cta}
-      </a>
+      {planId ? (
+        <CheckoutButton planId={planId} highlighted={highlighted}>
+          {cta}
+        </CheckoutButton>
+      ) : (
+        <a
+          href={href}
+          className={cn(
+            "block rounded-[var(--radius-md)] py-[var(--space-3)] text-center text-[var(--text-sm)] font-medium",
+            "transition-colors duration-[var(--duration-fast)]",
+            highlighted
+              ? "bg-[var(--color-bg-surface)] text-[var(--color-accent)] hover:bg-[var(--color-bg)]"
+              : "bg-[var(--color-accent)] text-[var(--color-text-inverse)] hover:bg-[var(--color-accent-hover)]"
+          )}
+        >
+          {cta}
+        </a>
+      )}
     </div>
   );
 }

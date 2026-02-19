@@ -183,6 +183,7 @@ export default function Home() {
               ]}
               cta="Start free trial"
               href="/login?plan=starter"
+              planId="starter"
             />
             <PricingCard
               name="Team"
@@ -201,6 +202,7 @@ export default function Home() {
               ]}
               cta="Start free trial"
               href="/login?plan=team"
+              planId="team"
             />
             <PricingCard
               name="Enterprise"
