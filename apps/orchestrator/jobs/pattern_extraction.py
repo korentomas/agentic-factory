@@ -67,6 +67,9 @@ class AgentOutcome:
     timestamp: str
     cost_usd: float = 0.0
     turns_total: int = 0
+    model: str = ""           # Write model used (e.g. "claude-sonnet-4-6")
+    review_model: str = ""    # Review model used (e.g. "claude-opus-4-6")
+    provider: str = ""        # Provider name (e.g. "anthropic", "openrouter")
 
 
 @dataclass
@@ -94,6 +97,7 @@ class ExtractionReport:
     period_start: str
     period_end: str
     cost_by_outcome: dict[str, float] = field(default_factory=dict)
+    success_rate_by_model: dict[str, float] = field(default_factory=dict)
 
 
 # ── Loading ────────────────────────────────────────────────────────────────────
@@ -138,6 +142,9 @@ def load_outcomes(path: str = "data/agent-outcomes.jsonl") -> list[AgentOutcome]
                     timestamp=data["timestamp"],
                     cost_usd=data.get("cost_usd", 0.0),
                     turns_total=data.get("turns_total", 0),
+                    model=data.get("model", ""),
+                    review_model=data.get("review_model", ""),
+                    provider=data.get("provider", ""),
                 )
                 outcomes.append(outcome)
             except (KeyError, TypeError, ValueError) as exc:
@@ -396,6 +403,20 @@ def analyze(outcomes: list[AgentOutcome]) -> ExtractionReport:
         count = outcome_cost_counts[outcome_type]
         cost_by_outcome[outcome_type] = round(total_cost / count, 4)
 
+    # Success rate by model (skip outcomes with no model recorded)
+    model_totals: Counter[str] = Counter()
+    model_successes: Counter[str] = Counter()
+    for o in outcomes:
+        if o.model:
+            model_totals[o.model] += 1
+            if o.outcome == "clean":
+                model_successes[o.model] += 1
+
+    success_rate_by_model: dict[str, float] = {}
+    for model_name, model_total in model_totals.items():
+        rate = model_successes[model_name] / model_total if model_total > 0 else 0.0
+        success_rate_by_model[model_name] = round(rate, 4)
+
     return ExtractionReport(
         total_runs=total,
         success_rate=success_rate,
@@ -407,6 +428,7 @@ def analyze(outcomes: list[AgentOutcome]) -> ExtractionReport:
         period_start=period_start,
         period_end=period_end,
         cost_by_outcome=cost_by_outcome,
+        success_rate_by_model=success_rate_by_model,
     )
 
 
@@ -496,6 +518,18 @@ def format_rules_markdown(report: ExtractionReport) -> str:
             lines.append(f"- {outcome_type}: ${avg_cost:.4f}")
         lines.append("")
 
+    # Model performance
+    if report.success_rate_by_model:
+        lines.append("## Model Performance")
+        lines.append("")
+        for model_name, rate in sorted(
+            report.success_rate_by_model.items(),
+            key=lambda x: x[1],
+            reverse=True,
+        ):
+            lines.append(f"- `{model_name}`: {rate:.0%} success rate")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -539,6 +573,17 @@ def _split_patterns_markdown(report: ExtractionReport) -> tuple[str, str]:
             pat_lines.append("")
             for outcome_type, avg_cost in sorted(report.cost_by_outcome.items()):
                 pat_lines.append(f"- {outcome_type}: ${avg_cost:.4f}")
+            pat_lines.append("")
+
+        if report.success_rate_by_model:
+            pat_lines.append("## Model Performance")
+            pat_lines.append("")
+            for model_name, rate in sorted(
+                report.success_rate_by_model.items(),
+                key=lambda x: x[1],
+                reverse=True,
+            ):
+                pat_lines.append(f"- `{model_name}`: {rate:.0%} success rate")
             pat_lines.append("")
 
     patterns_md = "\n".join(pat_lines)

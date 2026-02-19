@@ -64,7 +64,7 @@ def _make_outcome(**kwargs: object) -> AgentOutcome:
 
 def _outcome_to_dict(outcome: AgentOutcome) -> dict[str, object]:
     """Convert an AgentOutcome to a dict suitable for JSON serialization."""
-    return {
+    d: dict[str, object] = {
         "outcome": outcome.outcome,
         "pr_url": outcome.pr_url,
         "pr_number": outcome.pr_number,
@@ -78,6 +78,13 @@ def _outcome_to_dict(outcome: AgentOutcome) -> dict[str, object]:
         "cost_usd": outcome.cost_usd,
         "turns_total": outcome.turns_total,
     }
+    if outcome.model:
+        d["model"] = outcome.model
+    if outcome.review_model:
+        d["review_model"] = outcome.review_model
+    if outcome.provider:
+        d["provider"] = outcome.provider
+    return d
 
 
 def _write_jsonl(path: Path, outcomes: list[AgentOutcome]) -> None:
@@ -100,6 +107,7 @@ def _make_report(**kwargs: object) -> ExtractionReport:
         "period_start": "",
         "period_end": "",
         "cost_by_outcome": {},
+        "success_rate_by_model": {},
     }
     defaults.update(kwargs)
     return ExtractionReport(**defaults)  # type: ignore[arg-type]
@@ -1089,3 +1097,164 @@ class TestMain:
             main()
 
         assert call_count == 1
+
+
+# ── 11. TestModelTracking ──────────────────────────────────────────────────
+
+
+class TestModelTracking:
+    """Model/provider tracking in outcomes, analysis, and markdown output."""
+
+    def test_model_fields_loaded_when_present(self, tmp_path: Path) -> None:
+        """model, review_model, provider are parsed from JSONL when present."""
+        outcome = _make_outcome(
+            pr_number=1,
+            model="claude-sonnet-4-6",
+            review_model="claude-opus-4-6",
+            provider="anthropic",
+        )
+        jsonl_path = tmp_path / "outcomes.jsonl"
+        _write_jsonl(jsonl_path, [outcome])
+
+        loaded = load_outcomes(str(jsonl_path))
+
+        assert len(loaded) == 1
+        assert loaded[0].model == "claude-sonnet-4-6"
+        assert loaded[0].review_model == "claude-opus-4-6"
+        assert loaded[0].provider == "anthropic"
+
+    def test_missing_model_fields_default_to_empty(self, tmp_path: Path) -> None:
+        """Old records without model/review_model/provider get empty string defaults."""
+        data = {
+            "outcome": "clean",
+            "pr_url": "https://github.com/test/test/pull/1",
+            "pr_number": 1,
+            "branch": "agent/cu-gh-1",
+            "risk_tier": "medium",
+            "checks": {"gate": "success"},
+            "files_changed": ["apps/main.py"],
+            "review_findings": [],
+            "run_id": "abc",
+            "timestamp": "2026-02-18T00:00:00Z",
+        }
+        jsonl_path = tmp_path / "old_record.jsonl"
+        jsonl_path.write_text(json.dumps(data) + "\n")
+
+        loaded = load_outcomes(str(jsonl_path))
+
+        assert len(loaded) == 1
+        assert loaded[0].model == ""
+        assert loaded[0].review_model == ""
+        assert loaded[0].provider == ""
+
+    def test_success_rate_by_model_computed(self) -> None:
+        """analyze() computes per-model success rates from outcomes with model set."""
+        outcomes = [
+            _make_outcome(pr_number=1, outcome="clean", model="claude-sonnet-4-6"),
+            _make_outcome(pr_number=2, outcome="clean", model="claude-sonnet-4-6"),
+            _make_outcome(
+                pr_number=3,
+                outcome="tests-failed",
+                model="claude-sonnet-4-6",
+                checks={"tests": "failure"},
+            ),
+            _make_outcome(pr_number=4, outcome="clean", model="claude-opus-4-6"),
+        ]
+
+        report = analyze(outcomes)
+
+        # Sonnet: 2 clean / 3 total = 0.6667
+        assert report.success_rate_by_model["claude-sonnet-4-6"] == pytest.approx(
+            0.6667, abs=0.001
+        )
+        # Opus: 1 clean / 1 total = 1.0
+        assert report.success_rate_by_model["claude-opus-4-6"] == 1.0
+
+    def test_empty_model_excluded_from_analysis(self) -> None:
+        """Outcomes with empty model string are excluded from success_rate_by_model."""
+        outcomes = [
+            _make_outcome(pr_number=1, outcome="clean", model=""),
+            _make_outcome(pr_number=2, outcome="clean", model="claude-sonnet-4-6"),
+        ]
+
+        report = analyze(outcomes)
+
+        assert "" not in report.success_rate_by_model
+        assert "claude-sonnet-4-6" in report.success_rate_by_model
+        assert report.success_rate_by_model["claude-sonnet-4-6"] == 1.0
+
+    def test_model_performance_in_format_rules_markdown(self) -> None:
+        """format_rules_markdown() includes Model Performance section."""
+        report = _make_report(
+            total_runs=5,
+            success_rate=0.8,
+            success_rate_by_model={
+                "claude-sonnet-4-6": 0.75,
+                "claude-opus-4-6": 1.0,
+            },
+            period_start="2026-02-01",
+            period_end="2026-02-18",
+        )
+
+        markdown = format_rules_markdown(report)
+
+        assert "Model Performance" in markdown
+        assert "`claude-sonnet-4-6`: 75% success rate" in markdown
+        assert "`claude-opus-4-6`: 100% success rate" in markdown
+
+    def test_model_performance_in_split_patterns_markdown(self) -> None:
+        """_split_patterns_markdown() includes Model Performance in patterns file."""
+        report = _make_report(
+            total_runs=5,
+            success_rate=0.8,
+            success_rate_by_model={
+                "claude-sonnet-4-6": 0.6,
+                "claude-opus-4-6": 1.0,
+            },
+            period_start="2026-02-01",
+            period_end="2026-02-18",
+        )
+
+        pat_md, anti_md = _split_patterns_markdown(report)
+
+        assert "Model Performance" in pat_md
+        assert "`claude-opus-4-6`: 100% success rate" in pat_md
+        # Model performance goes in patterns file, not anti-patterns
+        assert "Model Performance" not in anti_md
+
+    def test_model_performance_sorted_by_rate_descending(self) -> None:
+        """Models are listed best-first in markdown output."""
+        report = _make_report(
+            total_runs=10,
+            success_rate=0.7,
+            success_rate_by_model={
+                "claude-haiku-4-5": 0.5,
+                "claude-sonnet-4-6": 0.75,
+                "claude-opus-4-6": 1.0,
+            },
+            period_start="2026-02-01",
+            period_end="2026-02-18",
+        )
+
+        markdown = format_rules_markdown(report)
+
+        opus_pos = markdown.index("claude-opus-4-6")
+        sonnet_pos = markdown.index("claude-sonnet-4-6")
+        haiku_pos = markdown.index("claude-haiku-4-5")
+        assert opus_pos < sonnet_pos < haiku_pos
+
+    def test_no_model_data_omits_section(self) -> None:
+        """When no outcomes have model set, Model Performance section is omitted."""
+        report = _make_report(
+            total_runs=5,
+            success_rate=0.8,
+            success_rate_by_model={},
+            period_start="2026-02-01",
+            period_end="2026-02-18",
+        )
+
+        markdown = format_rules_markdown(report)
+        pat_md, _ = _split_patterns_markdown(report)
+
+        assert "Model Performance" not in markdown
+        assert "Model Performance" not in pat_md
