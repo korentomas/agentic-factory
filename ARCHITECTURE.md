@@ -2,9 +2,9 @@
 
 ## Bird's Eye
 
-AgentFactory is an autonomous code factory. ClickUp tickets or GitHub Issues tagged `ai-agent` become reviewed, tested PRs via GitHub Actions + Claude Code.
+LailaTov (formerly AgentFactory) is an autonomous code factory. ClickUp tickets or GitHub Issues tagged `ai-agent` become reviewed, tested PRs via a multi-engine agent pipeline.
 
-Two parts: (1) a FastAPI orchestrator for ClickUp webhook → GitHub dispatch routing, and (2) GitHub Actions workflows that run Claude Code agents.
+Three parts: (1) a FastAPI orchestrator for webhook → dispatch routing, (2) an Agent Runner service for executing coding agents as subprocesses, and (3) a Next.js website for customer-facing SaaS with Stripe payments.
 
 Three layers: TRIAGE (evaluate clarity) → EXECUTE (write + review + remediate) → LEARN (extract patterns from outcomes).
 
@@ -15,6 +15,7 @@ apps/orchestrator/
 ├── main.py                    FastAPI app — lifespan, middleware, health, /ready
 ├── models.py                  AgentTask dataclass — parse-at-boundary
 ├── metrics.py                 Prometheus counters/histograms — custom registry
+├── providers.py               Multi-provider config, engine selection, model tiering
 ├── routers/
 │   ├── clickup.py             ClickUp webhook — HMAC verify, dispatch to GitHub
 │   └── callbacks.py           GitHub Actions callbacks — notify Slack/ClickUp
@@ -23,19 +24,46 @@ apps/orchestrator/
     ├── weekly_summary.py      Monday digest — stats gatherer + Claude narrator
     └── pattern_extraction.py  Outcome analyzer — extract patterns, update rules
 
+apps/runner/                   Agent Runner — executes coding agents as subprocesses
+├── main.py                    FastAPI service — POST /tasks, GET /tasks/{id}, cancel
+├── models.py                  RunnerTask, RunnerResult, TaskState — domain types
+├── workspace.py               Git workspace management — clone, branch, commit, push
+└── engines/
+    ├── protocol.py            AgentEngine protocol — interface for all adapters
+    ├── registry.py            Engine selection — model → best engine mapping
+    ├── subprocess_util.py     Shared async subprocess runner with timeout
+    ├── claude_code.py         Claude Code adapter — wraps `claude --print`
+    └── aider.py               Aider adapter — universal fallback via LiteLLM
+
+web/                           Next.js website — customer-facing SaaS
+├── src/app/                   App router pages (landing, login, API routes)
+├── src/components/            Bento grid, nav, pricing cards, footer
+├── src/lib/                   Auth (NextAuth + GitHub), Stripe, utilities
+└── .env.example               Required env vars for local dev
+
+.github/
+├── actions/run-agent/         Composite action — dispatches to any engine
+│   └── action.yml             Inputs: engine, model, prompt → normalized outputs
+└── workflows/
+    ├── agent-triage.yml       Issue triage → clarify or dispatch
+    ├── agent-write.yml        Agent writes code, creates draft PR
+    ├── agent-review.yml       Risk gate → tests → review → spec audit → outcome log
+    ├── agent-remediation.yml  Auto-fix loop (max 2 rounds, then escalation)
+    ├── pattern-extraction.yml Weekly pattern extraction → rules PR
+    └── test.yml               CI — lint, type check, tests
+
 scripts/
 └── risk_policy_gate.py        Risk tier calculator — glob matching, GH Actions output
 
-.github/workflows/
-├── agent-triage.yml           Issue triage → clarify or dispatch
-├── agent-write.yml            Claude writes code, creates draft PR (with cost tracking)
-├── agent-review.yml           Risk gate → tests → Claude review → spec audit → outcome log
-├── agent-remediation.yml      Auto-fix loop (max 2 rounds, then Slack escalation)
-├── pattern-extraction.yml     Weekly pattern extraction → rules PR
-└── test.yml                   CI — lint, type check, tests
-
 data/
-└── agent-outcomes.jsonl       Structured log of every pipeline run (JSONL, one record per line)
+└── agent-outcomes.jsonl       Structured log of every pipeline run (JSONL)
+
+docs/
+├── providers.md               Multi-provider configuration guide
+├── engines.md                 Engine-specific setup (claude-code, codex, gemini-cli)
+└── research/                  Business and design research
+    ├── cost-analysis.md       LLM pricing, COGS, tier structure
+    └── design-philosophy.md   Japanese aesthetics, color palette, design tokens
 
 .claude/
 ├── settings.json              Hook configuration (committed to repo)
@@ -56,6 +84,8 @@ data/
 - CLAUDE.md is the constitution (human-authored, never auto-modified).
 - `.claude/rules/` is curated from data (auto-generated, human-reviewed before merge).
 - Outcome data (`agent-outcomes.jsonl`) is append-only.
+- Engine adapters use `create_subprocess_exec` (not shell) — no injection risk.
+- The Agent Runner owns workspace lifecycle: create → execute → commit → cleanup.
 
 ## Layer Boundaries
 
