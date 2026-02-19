@@ -148,7 +148,7 @@ jobs:
             - confidence >= 0.8 → is_clear = true
             - Multiple valid interpretations → is_clear = false
             - Write the JSON file immediately, do not over-analyze
-          claude_args: "--max-turns 5 --model ${{ vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Bash'"
+          claude_args: "--max-turns 5 --model ${{ vars.TRIAGE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Bash'"
 
       - name: Parse triage result
         id: parse

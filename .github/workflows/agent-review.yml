@@ -222,7 +222,7 @@ jobs:
             Risk tier for this PR: ${{ needs.risk-gate.outputs.tier }}
 
             If the risk tier is HIGH, be thorough. If LOW (docs only), be brief.
-          claude_args: "--max-turns 15 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Glob,Grep'"
+          claude_args: "--max-turns 15 --model ${{ vars.REVIEW_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Glob,Grep'"
 
   # ── Step 4: Spec coverage audit ──────────────────────────────────────────────
   # Critical: separate from correctness review.
@@ -300,7 +300,7 @@ jobs:
 
             Do not read implementation files. If you find yourself reading a
             non-test file, stop and only look at test files.
-          claude_args: "--max-turns 15 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Bash,Glob,Grep,Read'"
+          claude_args: "--max-turns 15 --model ${{ vars.AUDIT_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Bash,Glob,Grep,Read'"
 
   # ── Step 5: Callback to orchestrator ─────────────────────────────────────────
   notify-orchestrator:
@@ -383,6 +383,9 @@ jobs:
           if [ "$TIER" = "high" ]; then TIER_EMOJI="🔴"; fi
           if [ "$TIER" = "low" ]; then TIER_EMOJI="🟢"; fi
 
+          WRITE_MODEL="${{ steps.models.outputs.write_model }}"
+          REVIEW_MODEL="${{ steps.models.outputs.review_model }}"
+
           BODY="✅ **All automated checks passed**
 
           ${TIER_EMOJI} Risk tier: \`${TIER}\`
@@ -390,6 +393,7 @@ jobs:
           • Tests: ✅
           • Code review: ✅
           • Spec coverage audit: ✅
+          • Models: write=\`${WRITE_MODEL}\`, review=\`${REVIEW_MODEL}\`
 
           Ready for human review and merge."
 
@@ -418,6 +422,26 @@ jobs:
               --fail-with-body || echo "::warning::Orchestrator callback failed"
           else
             echo "No ORCHESTRATOR_URL configured — skipping callback"
+          fi
+
+      # ── Resolve models for outcome log ─────────────────────────────────────
+      - name: Resolve models used
+        id: models
+        run: |
+          WRITE_MODEL="${{ vars.WRITE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }}"
+          REVIEW_MODEL="${{ vars.REVIEW_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }}"
+          echo "write_model=$WRITE_MODEL" >> "$GITHUB_OUTPUT"
+          echo "review_model=$REVIEW_MODEL" >> "$GITHUB_OUTPUT"
+
+          # Derive provider from model name: slash = openrouter, bare = anthropic/bedrock/vertex
+          if echo "$WRITE_MODEL" | grep -q "/"; then
+            echo "provider=openrouter" >> "$GITHUB_OUTPUT"
+          elif [ "${{ vars.CLAUDE_CODE_USE_BEDROCK }}" = "1" ]; then
+            echo "provider=bedrock" >> "$GITHUB_OUTPUT"
+          elif [ "${{ vars.CLAUDE_CODE_USE_VERTEX }}" = "1" ]; then
+            echo "provider=vertex" >> "$GITHUB_OUTPUT"
+          else
+            echo "provider=anthropic" >> "$GITHUB_OUTPUT"
           fi
 
       # ── Outcome logging ─────────────────────────────────────────────────────
@@ -459,6 +483,9 @@ jobs:
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --argjson files_changed "$CHANGED_FILES" \
             --argjson review_findings "${REVIEW_FINDINGS:-[]}" \
+            --arg model "${{ steps.models.outputs.write_model }}" \
+            --arg review_model "${{ steps.models.outputs.review_model }}" \
+            --arg provider "${{ steps.models.outputs.provider }}" \
             '{
               outcome: $outcome,
               pr_url: $pr_url,
@@ -474,7 +501,10 @@ jobs:
               files_changed: $files_changed,
               review_findings: $review_findings,
               run_id: $run_id,
-              timestamp: $timestamp
+              timestamp: $timestamp,
+              model: $model,
+              review_model: $review_model,
+              provider: $provider
             }')
 
           # Append to outcome log

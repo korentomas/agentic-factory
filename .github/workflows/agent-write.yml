@@ -174,7 +174,7 @@ jobs:
             Ticket title: ${{ github.event.client_payload.title }}
             Ticket description:
             ${{ github.event.client_payload.description }}
-          claude_args: "--max-turns 10 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep'"
+          claude_args: "--max-turns 10 --model ${{ vars.PLAN_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep'"
 
       - name: Capture plan costs
         if: ${{ github.event.client_payload.complexity == 'high' }}
@@ -243,7 +243,7 @@ jobs:
             - NEO4J_URI=bolt://localhost:7687
             - NEO4J_PASSWORD=testing123
             - REDIS_URL=redis://localhost:6379
-          claude_args: "--max-turns 40 --model ${{ vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
+          claude_args: "--max-turns 40 --model ${{ vars.WRITE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
 
       - name: Capture write costs
         id: write_cost
@@ -260,6 +260,14 @@ jobs:
           echo "cost=$COST" >> "$GITHUB_OUTPUT"
           echo "turns=$TURNS" >> "$GITHUB_OUTPUT"
           echo "duration=$DURATION" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve models used
+        id: models
+        run: |
+          PLAN_MODEL="${{ vars.PLAN_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }}"
+          WRITE_MODEL="${{ vars.WRITE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }}"
+          echo "plan_model=$PLAN_MODEL" >> "$GITHUB_OUTPUT"
+          echo "write_model=$WRITE_MODEL" >> "$GITHUB_OUTPUT"
 
       - name: Commit agent changes
         run: |
@@ -338,10 +346,10 @@ jobs:
 
           ---
           📊 **Agent Stats** (total: \$${TOTAL_COST})
-          | Step | Cost | Turns | Duration |
-          |------|------|-------|----------|
-          | Plan | \$${PLAN_COST} | ${PLAN_TURNS} | ${PLAN_DURATION_S}s |
-          | Write | \$${WRITE_COST} | ${WRITE_TURNS} | ${WRITE_DURATION_S}s |" \
+          | Step | Model | Cost | Turns | Duration |
+          |------|-------|------|-------|----------|
+          | Plan | \`${{ steps.models.outputs.plan_model }}\` | \$${PLAN_COST} | ${PLAN_TURNS} | ${PLAN_DURATION_S}s |
+          | Write | \`${{ steps.models.outputs.write_model }}\` | \$${WRITE_COST} | ${WRITE_TURNS} | ${WRITE_DURATION_S}s |" \
             --base main \
             --head "${{ steps.branch.outputs.branch }}" \
             2>&1)

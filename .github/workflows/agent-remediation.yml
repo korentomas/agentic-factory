@@ -292,7 +292,7 @@ jobs:
             - NEO4J_URI=bolt://localhost:7687
             - NEO4J_PASSWORD=testing123
             - REDIS_URL=redis://localhost:6379
-          claude_args: "--max-turns 20 --model ${{ vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
+          claude_args: "--max-turns 20 --model ${{ vars.REMEDIATION_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
 
       - name: Push fixes
         run: |
