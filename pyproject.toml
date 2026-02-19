@@ -97,6 +97,10 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "--cov=apps --cov-report=term-missing --cov-fail-under=75"
+markers = [
+    "e2e: End-to-end tests requiring real API keys and CLI binaries",
+    "slow: Tests that take >10s",
+]
 
 [tool.coverage.run]
 source = ["apps"]

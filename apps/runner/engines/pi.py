@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 
 import structlog
 
@@ -86,6 +87,12 @@ class PiAdapter:
         ]
 
         env_overrides: dict[str, str] = {**task.env_vars}
+
+        # omp is a bun package — ensure bun's bin dir is on PATH.
+        bun_bin = str(Path.home() / ".bun" / "bin")
+        current_path = _get_env("PATH", "/usr/bin:/bin")
+        if bun_bin not in current_path:
+            env_overrides["PATH"] = f"{bun_bin}:{current_path}"
 
         # Inject API keys for all known providers
         for env_key in _PROVIDER_ENV_KEYS:
@@ -164,8 +171,6 @@ class PiAdapter:
 
     async def check_available(self) -> bool:
         """Check if ``omp`` CLI is on PATH."""
-        from pathlib import Path
-
         result = await run_engine_subprocess(
             ["omp", "--version"],
             cwd=Path.cwd(),

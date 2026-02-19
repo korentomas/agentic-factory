@@ -78,7 +78,7 @@ class TestCodexSuccess:
 
     @pytest.mark.asyncio
     async def test_codex_default_model(self) -> None:
-        """No model on task defaults to gpt-4.1."""
+        """No model on task defaults to gpt-4.1-mini."""
         mock_result = SubprocessResult(
             return_code=0,
             stdout="Done",
@@ -96,8 +96,8 @@ class TestCodexSuccess:
 
         cmd = mock_run.call_args.args[0]
         model_idx = cmd.index("--model") + 1
-        assert cmd[model_idx] == "gpt-4.1"
-        assert result.model == "gpt-4.1"
+        assert cmd[model_idx] == "gpt-4.1-mini"
+        assert result.model == "gpt-4.1-mini"
 
 
 class TestCodexFailure:
@@ -302,8 +302,8 @@ class TestCodexCommand:
     """CodexAdapter: verify the constructed CLI command."""
 
     @pytest.mark.asyncio
-    async def test_codex_command_has_quiet_flag(self) -> None:
-        """Codex command includes --quiet flag."""
+    async def test_codex_command_uses_exec_subcommand(self) -> None:
+        """Codex command uses ``exec`` subcommand for non-interactive mode."""
         mock_result = SubprocessResult(
             return_code=0,
             stdout="Done",
@@ -320,7 +320,8 @@ class TestCodexCommand:
             await CodexAdapter().run(_make_task(model="gpt-4.1"))
 
         cmd = mock_run.call_args.args[0]
-        assert "--quiet" in cmd
+        assert cmd[0] == "codex"
+        assert cmd[1] == "exec"
 
     @pytest.mark.asyncio
     async def test_codex_passes_workspace_as_cwd(self) -> None:

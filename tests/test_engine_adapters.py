@@ -1520,8 +1520,8 @@ class TestCodexCommandBuilding:
     """CodexAdapter: verify the constructed CLI command."""
 
     @pytest.mark.asyncio
-    async def test_codex_includes_quiet_flag(self) -> None:
-        """Command includes --quiet for non-interactive output."""
+    async def test_codex_uses_exec_subcommand(self) -> None:
+        """Command uses ``exec`` subcommand for non-interactive mode."""
         mock_result = _subprocess_ok(stdout="Done!")
 
         with patch(
@@ -1532,7 +1532,8 @@ class TestCodexCommandBuilding:
             await CodexAdapter().run(_make_task())
 
         cmd = mock_run.call_args.args[0]
-        assert "--quiet" in cmd
+        assert cmd[0] == "codex"
+        assert cmd[1] == "exec"
 
     @pytest.mark.asyncio
     async def test_codex_includes_full_auto_flag(self) -> None:
@@ -1582,12 +1583,12 @@ class TestCodexCommandBuilding:
 
         cmd = mock_run.call_args.args[0]
         model_idx = cmd.index("--model") + 1
-        assert cmd[model_idx] == "gpt-4.1"
-        assert result.model == "gpt-4.1"
+        assert cmd[model_idx] == "gpt-4.1-mini"
+        assert result.model == "gpt-4.1-mini"
 
     @pytest.mark.asyncio
-    async def test_codex_passes_description_as_message(self) -> None:
-        """Task description is passed via --message argument."""
+    async def test_codex_passes_description_as_positional_arg(self) -> None:
+        """Task description is passed as positional argument to exec."""
         task = _make_task(description="Refactor the auth module")
         mock_result = _subprocess_ok(stdout="Done!")
 
@@ -1599,8 +1600,7 @@ class TestCodexCommandBuilding:
             await CodexAdapter().run(task)
 
         cmd = mock_run.call_args.args[0]
-        msg_idx = cmd.index("--message") + 1
-        assert cmd[msg_idx] == "Refactor the auth module"
+        assert cmd[-1] == "Refactor the auth module"
 
     @pytest.mark.asyncio
     async def test_codex_passes_workspace_as_cwd(self) -> None:

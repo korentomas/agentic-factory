@@ -79,6 +79,11 @@ class ClaudeCodeAdapter:
         ]
 
         env_overrides: dict[str, str] = {**task.env_vars}
+
+        # Prevent "cannot launch inside another Claude Code session" error
+        # when the runner itself is invoked from Claude Code.
+        env_overrides["CLAUDECODE"] = ""
+
         api_key = _get_env("ANTHROPIC_API_KEY")
         if api_key:
             env_overrides["ANTHROPIC_API_KEY"] = api_key
@@ -196,6 +201,8 @@ def _parse_claude_output(stdout: str) -> tuple[float, int]:
             continue
         try:
             data = json.loads(line)
+            if not isinstance(data, dict):
+                continue
             cost = float(data.get("cost_usd", 0.0) or 0.0)
             turns = int(data.get("num_turns", 0) or 0)
             return cost, turns

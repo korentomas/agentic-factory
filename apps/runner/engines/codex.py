@@ -27,7 +27,7 @@ SUPPORTED_MODELS = [
     "o1-mini",
 ]
 
-DEFAULT_MODEL = "gpt-4.1"
+DEFAULT_MODEL = "gpt-4.1-mini"
 
 
 def _get_env(key: str, default: str = "") -> str:
@@ -62,7 +62,7 @@ class CodexAdapter:
         *,
         cancel_event: asyncio.Event | None = None,
     ) -> RunnerResult:
-        """Execute task via ``codex --quiet --model {model}``.
+        """Execute task via ``codex exec --full-auto --model {model}``.
 
         When ``task.sandbox_mode`` is True, the command is wrapped in a
         Docker container using ``build_docker_cmd`` for isolated execution.
@@ -71,10 +71,10 @@ class CodexAdapter:
 
         cmd: list[str] = [
             "codex",
-            "--quiet",
+            "exec",
             "--full-auto",
             "--model", model,
-            "--message", task.description,
+            task.description,
         ]
 
         env_overrides: dict[str, str] = {**task.env_vars}
