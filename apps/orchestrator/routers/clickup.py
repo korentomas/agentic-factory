@@ -33,6 +33,18 @@ def _get_env(key: str) -> str:
     """Read env var at call time, not import time. Enables testing and late binding."""
     return os.getenv(key, "")
 
+
+def _parse_int_env(key: str, default: int) -> int:
+    """Read an integer env var at call time. Returns default if unset or not a valid integer."""
+    raw = os.getenv(key, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("invalid_int_env_var", key=key, value=raw, using_default=default)
+        return default
+
 # ── In-memory deduplication ────────────────────────────────────────────────────
 # Prevents duplicate dispatches if ClickUp sends the same webhook twice.
 # Uses an OrderedDict as a bounded LRU cache — no Redis dependency required.
@@ -64,7 +76,18 @@ class _DedupeCache:
             self._cache.popitem(last=False)
 
 
-_dedupe = _DedupeCache()
+_dedupe: _DedupeCache | None = None
+
+
+def _get_dedupe_cache() -> _DedupeCache:
+    """Return the module-level dedup cache, initializing it from env vars on first use."""
+    global _dedupe
+    if _dedupe is None:
+        _dedupe = _DedupeCache(
+            max_size=_parse_int_env("DEDUP_CACHE_MAX_SIZE", 1000),
+            ttl_seconds=_parse_int_env("DEDUP_CACHE_TTL_SECONDS", 3600),
+        )
+    return _dedupe
 
 
 # ── Webhook endpoint ───────────────────────────────────────────────────────────
@@ -140,11 +163,12 @@ async def clickup_webhook(
 
     # ── Deduplication ─────────────────────────────────────────────────────────
     dedupe_key = f"clickup:{task_id}:ai-agent-tag"
-    if _dedupe.is_duplicate(dedupe_key):
+    dedupe = _get_dedupe_cache()
+    if dedupe.is_duplicate(dedupe_key):
         logger.info("clickup_webhook_duplicate", task_id=task_id)
         return {"action": "ignored", "reason": "duplicate_event"}
 
-    _dedupe.mark_seen(dedupe_key)
+    dedupe.mark_seen(dedupe_key)
 
     # ── Dispatch in background (respond to ClickUp immediately) ───────────────
     # ClickUp has a short timeout for webhook acknowledgment.

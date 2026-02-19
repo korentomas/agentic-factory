@@ -66,9 +66,13 @@ def _post_clickup(
 
 @pytest.fixture(autouse=True)
 def _reset_dedupe_cache() -> None:
-    """Clear the module-level dedupe cache before each test to prevent cross-test leaks."""
-    from apps.orchestrator.routers.clickup import _dedupe
-    _dedupe._cache.clear()
+    """Reset the module-level dedupe cache before each test to prevent cross-test leaks.
+
+    Setting _dedupe to None forces re-initialization on next access, which also
+    picks up any env var changes made by monkeypatch in individual tests.
+    """
+    import apps.orchestrator.routers.clickup as clickup_module
+    clickup_module._dedupe = None
 
 
 # ── 1. Valid webhook with correct HMAC signature returns dispatching ──────────
@@ -605,3 +609,97 @@ class TestExtractTaskIdFromBranch:
         from apps.orchestrator.routers.callbacks import _extract_task_id_from_branch
 
         assert _extract_task_id_from_branch("cu-abc123") == "abc123"
+
+
+# ── 11. _DedupeCache env var configuration ───────────────────────────────────
+
+class TestDedupeCacheConfiguration:
+    """DEDUP_CACHE_MAX_SIZE and DEDUP_CACHE_TTL_SECONDS configure the cache at init time."""
+
+    def test_custom_max_size_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.setenv("DEDUP_CACHE_MAX_SIZE", "5")
+        cache = clickup_module._get_dedupe_cache()
+        assert cache._max_size == 5
+
+    def test_custom_ttl_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.setenv("DEDUP_CACHE_TTL_SECONDS", "120")
+        cache = clickup_module._get_dedupe_cache()
+        assert cache._ttl == 120
+
+    def test_default_max_size_when_env_not_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.delenv("DEDUP_CACHE_MAX_SIZE", raising=False)
+        cache = clickup_module._get_dedupe_cache()
+        assert cache._max_size == 1000
+
+    def test_default_ttl_when_env_not_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.delenv("DEDUP_CACHE_TTL_SECONDS", raising=False)
+        cache = clickup_module._get_dedupe_cache()
+        assert cache._ttl == 3600
+
+    def test_invalid_max_size_falls_back_to_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.setenv("DEDUP_CACHE_MAX_SIZE", "not-a-number")
+        cache = clickup_module._get_dedupe_cache()
+        assert cache._max_size == 1000
+
+    def test_invalid_ttl_falls_back_to_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.setenv("DEDUP_CACHE_TTL_SECONDS", "abc")
+        cache = clickup_module._get_dedupe_cache()
+        assert cache._ttl == 3600
+
+    def test_empty_max_size_uses_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.setenv("DEDUP_CACHE_MAX_SIZE", "")
+        cache = clickup_module._get_dedupe_cache()
+        assert cache._max_size == 1000
+
+    def test_empty_ttl_uses_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.setenv("DEDUP_CACHE_TTL_SECONDS", "")
+        cache = clickup_module._get_dedupe_cache()
+        assert cache._ttl == 3600
+
+    def test_configured_max_size_enforced_on_eviction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cache initialized with MAX_SIZE=2 evicts oldest on the 3rd entry."""
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.setenv("DEDUP_CACHE_MAX_SIZE", "2")
+        cache = clickup_module._get_dedupe_cache()
+
+        cache.mark_seen("x")
+        cache.mark_seen("y")
+        cache.mark_seen("z")  # evicts "x"
+
+        assert cache.is_duplicate("x") is False
+        assert cache.is_duplicate("y") is True
+        assert cache.is_duplicate("z") is True
+
+    def test_configured_ttl_enforced(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A cache initialized with TTL=10 expires keys after 10 seconds."""
+        import apps.orchestrator.routers.clickup as clickup_module
+
+        monkeypatch.setenv("DEDUP_CACHE_TTL_SECONDS", "10")
+        cache = clickup_module._get_dedupe_cache()
+
+        fake_time = 2000.0
+        monkeypatch.setattr(time, "time", lambda: fake_time)
+        cache.mark_seen("ttl-test-key")
+        assert cache.is_duplicate("ttl-test-key") is True
+
+        fake_time = 2011.0  # 11 seconds later, past the 10s TTL
+        assert cache.is_duplicate("ttl-test-key") is False
