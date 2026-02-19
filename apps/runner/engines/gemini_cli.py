@@ -2,6 +2,15 @@
 Gemini CLI engine adapter.
 
 Wraps the ``gemini`` CLI for headless execution with Google models.
+
+Requires: ``gemini`` binary on PATH (installed via
+``npm i -g @google/gemini-cli``).
+
+Environment:
+    GEMINI_API_KEY:          Required. Google AI Studio API key.
+    GOOGLE_GEMINI_BASE_URL:  Optional. Custom API endpoint for proxies.
+    GOOGLE_CLOUD_PROJECT:    Optional. GCP project for Vertex AI mode.
+    GOOGLE_CLOUD_LOCATION:   Optional. GCP region for Vertex AI mode.
 """
 
 from __future__ import annotations
@@ -20,6 +29,9 @@ logger = structlog.get_logger()
 SUPPORTED_MODELS = [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3-pro-preview",
+    "gemini-3-flash-preview",
 ]
 
 DEFAULT_MODEL = "gemini-2.5-flash"
@@ -34,10 +46,13 @@ class GeminiCliAdapter:
     """Wraps the ``gemini`` CLI for headless agent execution.
 
     Requires: ``gemini`` binary on PATH (installed via
-    ``npm i -g @anthropic-ai/gemini`` or Google's Gemini CLI).
+    ``npm i -g @google/gemini-cli``).
 
     Environment:
-        GEMINI_API_KEY: Required. Google Gemini API key.
+        GEMINI_API_KEY:          Required. Google AI Studio API key.
+        GOOGLE_GEMINI_BASE_URL:  Optional. Custom API endpoint for proxies.
+        GOOGLE_CLOUD_PROJECT:    Optional. GCP project for Vertex AI mode.
+        GOOGLE_CLOUD_LOCATION:   Optional. GCP region for Vertex AI mode.
     """
 
     @property
@@ -56,7 +71,7 @@ class GeminiCliAdapter:
         *,
         cancel_event: asyncio.Event | None = None,
     ) -> RunnerResult:
-        """Execute task via ``gemini --model {model} --message {prompt}``.
+        """Execute task via ``gemini --model {model} {prompt}``.
 
         When ``task.sandbox_mode`` is True, the command is wrapped in a
         Docker container using ``build_docker_cmd`` for isolated execution.
@@ -66,13 +81,20 @@ class GeminiCliAdapter:
         cmd: list[str] = [
             "gemini",
             "--model", model,
-            "--message", task.description,
+            task.description,
         ]
 
         env_overrides: dict[str, str] = {**task.env_vars}
         api_key = _get_env("GEMINI_API_KEY")
         if api_key:
             env_overrides["GEMINI_API_KEY"] = api_key
+        base_url = _get_env("GOOGLE_GEMINI_BASE_URL")
+        if base_url:
+            env_overrides["GOOGLE_GEMINI_BASE_URL"] = base_url
+        for env_key in ("GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"):
+            value = _get_env(env_key)
+            if value:
+                env_overrides[env_key] = value
 
         workspace = task.workspace_path if hasattr(task, "workspace_path") else None
         if workspace is None:

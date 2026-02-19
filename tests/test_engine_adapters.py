@@ -1,4 +1,4 @@
-"""Comprehensive tests for engine adapters — ClaudeCodeAdapter and AiderAdapter.
+"""Comprehensive tests for engine adapters — ClaudeCode, Aider, and Gemini CLI.
 
 Tests mock ``run_engine_subprocess`` (not ``asyncio.create_subprocess_exec``)
 to exercise the full adapter logic deterministically: argument building,
@@ -16,6 +16,7 @@ import pytest
 
 from apps.runner.engines.aider import AiderAdapter
 from apps.runner.engines.claude_code import ClaudeCodeAdapter
+from apps.runner.engines.gemini_cli import GeminiCliAdapter
 from apps.runner.engines.subprocess_util import SubprocessResult
 from apps.runner.models import RunnerTask
 
@@ -1185,3 +1186,224 @@ class TestAiderSandboxWiring:
 
         cmd = mock_run.call_args.args[0]
         assert cmd[0] == "aider"
+
+
+# ── GeminiCliAdapter tests ─────────────────────────────────────────────────
+
+_GEMINI_SUBPROCESS = "apps.runner.engines.gemini_cli.run_engine_subprocess"
+
+
+class TestGeminiEnvOverrides:
+    """GeminiCliAdapter: environment variable injection."""
+
+    @pytest.mark.asyncio
+    async def test_gemini_injects_api_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify GEMINI_API_KEY is injected into env_overrides."""
+        monkeypatch.setenv("GEMINI_API_KEY", "AIza-test-key-123")
+        monkeypatch.delenv("GOOGLE_GEMINI_BASE_URL", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+        mock_result = _subprocess_ok(stdout="Generated code", duration_ms=8000)
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await GeminiCliAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["GEMINI_API_KEY"] == "AIza-test-key-123"
+
+    @pytest.mark.asyncio
+    async def test_gemini_injects_base_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify GOOGLE_GEMINI_BASE_URL is injected when set."""
+        monkeypatch.setenv("GEMINI_API_KEY", "AIza-test")
+        monkeypatch.setenv("GOOGLE_GEMINI_BASE_URL", "https://my-proxy.example.com")
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+        mock_result = _subprocess_ok(stdout="Done")
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await GeminiCliAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["GOOGLE_GEMINI_BASE_URL"] == "https://my-proxy.example.com"
+
+    @pytest.mark.asyncio
+    async def test_gemini_no_base_url_omits_from_overrides(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When GOOGLE_GEMINI_BASE_URL is unset, it is not injected."""
+        monkeypatch.setenv("GEMINI_API_KEY", "AIza-test")
+        monkeypatch.delenv("GOOGLE_GEMINI_BASE_URL", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+        mock_result = _subprocess_ok(stdout="Done")
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await GeminiCliAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert "GOOGLE_GEMINI_BASE_URL" not in env_overrides
+
+    @pytest.mark.asyncio
+    async def test_gemini_vertex_env_forwarded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are forwarded."""
+        monkeypatch.setenv("GEMINI_API_KEY", "AIza-test")
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-gcp-project")
+        monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+        monkeypatch.delenv("GOOGLE_GEMINI_BASE_URL", raising=False)
+        mock_result = _subprocess_ok(stdout="Done")
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await GeminiCliAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["GOOGLE_CLOUD_PROJECT"] == "my-gcp-project"
+        assert env_overrides["GOOGLE_CLOUD_LOCATION"] == "us-central1"
+
+
+class TestGeminiCommandBuilding:
+    """GeminiCliAdapter: verify the constructed CLI command."""
+
+    @pytest.mark.asyncio
+    async def test_gemini_uses_task_model(self) -> None:
+        """Task model is passed as --model argument."""
+        task = _make_task(model="gemini-2.5-pro")
+        mock_result = _subprocess_ok(stdout="Done")
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            result = await GeminiCliAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        model_idx = cmd.index("--model") + 1
+        assert cmd[model_idx] == "gemini-2.5-pro"
+        assert result.model == "gemini-2.5-pro"
+
+    @pytest.mark.asyncio
+    async def test_gemini_passes_description_as_positional(self) -> None:
+        """Task description is passed as a positional argument (not --message)."""
+        task = _make_task(description="Refactor the auth middleware")
+        mock_result = _subprocess_ok(stdout="Done")
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await GeminiCliAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        assert "--message" not in cmd
+        assert "Refactor the auth middleware" in cmd
+
+    @pytest.mark.asyncio
+    async def test_gemini_default_model(self) -> None:
+        """No model on task defaults to gemini-2.5-flash."""
+        task = _make_task(model=None)
+        mock_result = _subprocess_ok(stdout="Done")
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            result = await GeminiCliAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        model_idx = cmd.index("--model") + 1
+        assert cmd[model_idx] == "gemini-2.5-flash"
+        assert result.model == "gemini-2.5-flash"
+
+
+class TestGeminiSuccess:
+    """GeminiCliAdapter: successful runs and failure handling."""
+
+    @pytest.mark.asyncio
+    async def test_gemini_success_returns_result(self) -> None:
+        """Mock subprocess success produces status='success'."""
+        mock_result = _subprocess_ok(
+            stdout="Generated code for auth module\nDone!",
+            duration_ms=20000,
+        )
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            result = await GeminiCliAdapter().run(_make_task())
+
+        assert result.status == "success"
+        assert result.engine == "gemini-cli"
+        assert result.duration_ms == 20000
+        assert result.error_message is None
+
+    @pytest.mark.asyncio
+    async def test_gemini_failure_returns_error(self) -> None:
+        """Non-zero exit code produces status='failure' with error."""
+        mock_result = _subprocess_fail(
+            return_code=1,
+            stderr="Error: API key invalid",
+            duration_ms=3000,
+        )
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            result = await GeminiCliAdapter().run(_make_task())
+
+        assert result.status == "failure"
+        assert result.error_message is not None
+        assert "API key invalid" in result.error_message
+        assert result.engine == "gemini-cli"
+
+
+class TestGeminiSandboxWiring:
+    """GeminiCliAdapter: sandbox_mode wraps command in Docker."""
+
+    @pytest.mark.asyncio
+    async def test_gemini_sandbox_wraps_command(self) -> None:
+        """When sandbox_mode=True, cmd starts with 'docker' instead of 'gemini'."""
+        task = _make_task(
+            sandbox_mode=True,
+            sandbox_image="lailatov/sandbox:python",
+        )
+        mock_result = _subprocess_ok(stdout="Done")
+
+        with patch(
+            _GEMINI_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await GeminiCliAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == "docker"
+        assert "run" in cmd
+        assert "lailatov/sandbox:python" in cmd
