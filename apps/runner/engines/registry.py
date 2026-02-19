@@ -14,6 +14,7 @@ from apps.runner.engines.aider import AiderAdapter
 from apps.runner.engines.claude_code import ClaudeCodeAdapter
 from apps.runner.engines.codex import CodexAdapter
 from apps.runner.engines.gemini_cli import GeminiCliAdapter
+from apps.runner.engines.pi import PiAdapter
 from apps.runner.engines.protocol import AgentEngine
 
 logger = structlog.get_logger()
@@ -35,6 +36,7 @@ def _build_registry() -> dict[str, AgentEngine]:
         "codex": CodexAdapter(),
         "gemini-cli": GeminiCliAdapter(),
         "aider": AiderAdapter(),
+        "oh-my-pi": PiAdapter(),
     }
 
 

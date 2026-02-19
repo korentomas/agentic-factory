@@ -561,11 +561,18 @@ class TestEngineRegistry:
         engine = select_engine()
         assert engine.name == "aider"
 
-    def test_registry_has_four_engines(self):
+    def test_registry_has_five_engines(self):
+        """Registry now has 5 engines including oh-my-pi."""
         from apps.runner.engines.registry import get_registry
 
         registry = get_registry()
-        assert set(registry.keys()) == {"claude-code", "codex", "gemini-cli", "aider"}
+        assert set(registry.keys()) == {
+            "claude-code", "codex", "gemini-cli", "aider", "oh-my-pi",
+        }
+
+    def test_get_oh_my_pi(self):
+        engine = get_engine("oh-my-pi")
+        assert engine.name == "oh-my-pi"
 
     def test_get_codex(self):
         engine = get_engine("codex")
