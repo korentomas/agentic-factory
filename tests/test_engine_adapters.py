@@ -423,6 +423,70 @@ class TestClaudeEnvOverrides:
         assert env_overrides["ANTHROPIC_API_KEY"] == "sk-ant-abc"
 
 
+    @pytest.mark.asyncio
+    async def test_claude_env_overrides_include_auth_token(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify ANTHROPIC_AUTH_TOKEN is injected when set (for OpenRouter)."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://openrouter.ai/api")
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "sk-or-v1-test-key")
+        mock_result = _subprocess_ok(
+            stdout=json.dumps({"cost_usd": 0.0, "num_turns": 1}),
+        )
+        with patch(
+            _CLAUDE_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await ClaudeCodeAdapter().run(_make_task())
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["ANTHROPIC_AUTH_TOKEN"] == "sk-or-v1-test-key"
+        assert env_overrides["ANTHROPIC_BASE_URL"] == "https://openrouter.ai/api"
+
+    @pytest.mark.asyncio
+    async def test_claude_no_auth_token_omits_from_overrides(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When ANTHROPIC_AUTH_TOKEN is unset, it is not injected."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        mock_result = _subprocess_ok(
+            stdout=json.dumps({"cost_usd": 0.0, "num_turns": 1}),
+        )
+        with patch(
+            _CLAUDE_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await ClaudeCodeAdapter().run(_make_task())
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert "ANTHROPIC_AUTH_TOKEN" not in env_overrides
+
+    @pytest.mark.asyncio
+    async def test_claude_bedrock_env_forwarded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify CLAUDE_CODE_USE_BEDROCK is forwarded."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
+        mock_result = _subprocess_ok(
+            stdout=json.dumps({"cost_usd": 0.0, "num_turns": 1}),
+        )
+        with patch(
+            _CLAUDE_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await ClaudeCodeAdapter().run(_make_task())
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["CLAUDE_CODE_USE_BEDROCK"] == "1"
+
+
 class TestClaudeCommandBuilding:
     """ClaudeCodeAdapter: verify the constructed CLI command."""
 
@@ -947,6 +1011,19 @@ class TestAiderCommandBuilding:
         assert "--yes-always" in cmd
         assert "--no-auto-commits" in cmd
         assert "--no-git" in cmd
+
+    @pytest.mark.asyncio
+    async def test_aider_includes_no_stream(self) -> None:
+        """Aider command includes --no-stream for headless use."""
+        mock_result = _subprocess_ok(stdout="Done!")
+        with patch(
+            _AIDER_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await AiderAdapter().run(_make_task(model="gpt-4.1"))
+        cmd = mock_run.call_args.args[0]
+        assert "--no-stream" in cmd
 
     @pytest.mark.asyncio
     async def test_aider_passes_workspace_as_cwd(self) -> None:

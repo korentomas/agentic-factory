@@ -84,6 +84,7 @@ class AiderAdapter:
             "--yes-always",
             "--no-auto-commits",
             "--no-git",
+            "--no-stream",
             "--model", model,
             "--message", task.description,
         ]
