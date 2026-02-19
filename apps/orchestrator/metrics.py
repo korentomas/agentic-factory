@@ -10,6 +10,7 @@ Metrics exposed:
   - http_request_duration_seconds histogram (method, path)
   - webhook_dispatches_total     counter  (source)
   - notification_failures_total  counter  (target)
+  - model_invocations_total      counter  (provider, model, stage, risk_tier)
 """
 
 from __future__ import annotations
@@ -50,6 +51,13 @@ NOTIFICATION_FAILURES_TOTAL: Counter = Counter(
     "notification_failures_total",
     "Total number of failed notification attempts.",
     ["target"],
+    registry=REGISTRY,
+)
+
+MODEL_INVOCATIONS_TOTAL: Counter = Counter(
+    "model_invocations_total",
+    "Total model invocations across pipeline stages.",
+    ["provider", "model", "stage", "risk_tier"],
     registry=REGISTRY,
 )
 
