@@ -1,0 +1,61 @@
+name: "Agent: Handle Issue Reply"
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  handle-reply:
+    name: "Process user reply"
+    runs-on: ubuntu-latest
+    if: |
+      contains(github.event.issue.labels.*.name, 'awaiting-reply') &&
+      github.event.comment.author_association != 'BOT' &&
+      !endsWith(github.event.comment.user.login, '[bot]')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.AGENTFACTORY_APP_ID }}
+          private-key: ${{ secrets.AGENTFACTORY_APP_PRIVATE_KEY }}
+
+      - name: Prepare issue context
+        id: context
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          {
+            echo "A user replied to a clarification question on issue #${ISSUE_NUMBER}."
+            echo ""
+            echo "## Original Issue"
+            echo "Title: ${ISSUE_TITLE}"
+            echo "Body: ${ISSUE_BODY}"
+            echo ""
+            echo "## User Reply"
+            echo "${COMMENT_BODY}"
+            echo ""
+            echo "## Instructions"
+            echo "1. Read the original issue and the user reply carefully."
+            echo "2. If the reply provides enough context, proceed to work on the fix."
+            echo "3. If still unclear, ask another clarification question."
+            echo "4. Remove the awaiting-reply label when you have what you need."
+          } > /tmp/issue_reply_context.md
+
+      - name: Process reply with agent
+        uses: ./.github/actions/run-agent
+        with:
+          engine: ${{ vars.TRIAGE_ENGINE || 'claude-code' }}
+          prompt: |
+            Read the issue context at /tmp/issue_reply_context.md and follow the instructions there.
+          model: ${{ vars.TRIAGE_MODEL || 'claude-sonnet-4-6' }}
+          max_turns: "10"
+          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          settings: ${{ secrets.CLAUDE_SETTINGS }}
+          allowed_bots: "agentfactory-bot[bot]"

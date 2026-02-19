@@ -22,10 +22,13 @@ jobs:
     # 2. A comment is posted on an issue with "needs-clarification" label
     #    (someone answered a clarification question)
     if: |
-      (github.event_name == 'issues' && github.event.label.name == 'ai-agent') ||
-      (github.event_name == 'issue_comment' &&
-       contains(github.event.issue.labels.*.name, 'needs-clarification') &&
-       github.event.comment.user.login != 'agentfactory-bot[bot]')
+      !startsWith(github.head_ref || github.ref_name, 'selfheal-') &&
+      (
+        (github.event_name == 'issues' && github.event.label.name == 'ai-agent') ||
+        (github.event_name == 'issue_comment' &&
+         contains(github.event.issue.labels.*.name, 'needs-clarification') &&
+         github.event.comment.user.login != 'agentfactory-bot[bot]')
+      )
     runs-on: ubuntu-latest
     outputs:
       is_clear: ${{ steps.parse.outputs.is_clear }}

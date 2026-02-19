@@ -12,6 +12,7 @@ jobs:
   # ── Gate: only run on agent/* PRs with BLOCKING findings ────────────────────
   check-trigger:
     name: "Check: Should Remediate?"
+    if: "!startsWith(github.head_ref || github.ref_name, 'selfheal-')"
     runs-on: ubuntu-latest
     outputs:
       should_remediate: ${{ steps.check.outputs.should_remediate }}

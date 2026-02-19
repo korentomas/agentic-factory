@@ -17,6 +17,7 @@ jobs:
   # ── Gate: only run on agent/* branches ──────────────────────────────────────
   check-branch:
     name: "Check: Agent Branch"
+    if: "!startsWith(github.head_ref || github.ref_name, 'selfheal-')"
     runs-on: ubuntu-latest
     outputs:
       is_agent_pr: ${{ steps.check.outputs.is_agent_pr }}
