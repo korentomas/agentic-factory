@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 
@@ -32,7 +32,7 @@ def _get_env(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
-class ModelTier(str, Enum):
+class ModelTier(StrEnum):
     """Model capability tier — maps to cost/quality tradeoffs.
 
     FAST:     Haiku-class — cheap, good for classification and triage.
@@ -45,7 +45,7 @@ class ModelTier(str, Enum):
     PREMIUM = "premium"
 
 
-class PipelineStage(str, Enum):
+class PipelineStage(StrEnum):
     """Stages in the AgentFactory pipeline."""
 
     TRIAGE = "triage"

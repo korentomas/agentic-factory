@@ -9,6 +9,41 @@ AgentFactory supports multiple AI providers. Choose based on your needs:
 | **Amazon Bedrock** | AWS billing | Claude models | AWS credentials |
 | **Google Vertex AI** | GCP billing | Claude models | GCP credentials |
 
+## Per-Stage Model Configuration
+
+Each pipeline stage can use a different model. Set GitHub Actions variables (not secrets) to override:
+
+| Variable | Stage | Default Tier | Default Model |
+|----------|-------|-------------|---------------|
+| `TRIAGE_MODEL` | Triage | Fast | `claude-sonnet-4-6` (via `CLAUDE_SONNET_MODEL`) |
+| `PLAN_MODEL` | ExecPlan | Premium | `claude-opus-4-6` (via `CLAUDE_OPUS_MODEL`) |
+| `WRITE_MODEL` | Write code | Standard | `claude-sonnet-4-6` (via `CLAUDE_SONNET_MODEL`) |
+| `REVIEW_MODEL` | Code review | Premium | `claude-opus-4-6` (via `CLAUDE_OPUS_MODEL`) |
+| `AUDIT_MODEL` | Spec audit | Premium | `claude-opus-4-6` (via `CLAUDE_OPUS_MODEL`) |
+| `REMEDIATION_MODEL` | Remediation | Standard | `claude-sonnet-4-6` (via `CLAUDE_SONNET_MODEL`) |
+
+### Fallback chain
+
+Each stage uses a 3-level fallback: `STAGE_MODEL` → `CLAUDE_SONNET_MODEL` or `CLAUDE_OPUS_MODEL` → hardcoded default.
+
+Example: if only `CLAUDE_SONNET_MODEL=claude-sonnet-4-5` is set, all Standard/Fast stages use Sonnet 4.5 without setting individual vars.
+
+### Fallback models (optional)
+
+If a primary model fails, a fallback model can retry the step:
+
+| Variable | Stage |
+|----------|-------|
+| `TRIAGE_FALLBACK_MODEL` | Triage |
+| `WRITE_FALLBACK_MODEL` | Write code |
+| `REMEDIATION_FALLBACK_MODEL` | Remediation |
+
+No fallback models are set by default. Review and audit stages don't need fallbacks — a review failure just means "needs human review."
+
+### Backward compatibility
+
+Existing deployments that only set `CLAUDE_SONNET_MODEL` and `CLAUDE_OPUS_MODEL` continue to work with zero changes. The per-stage vars are purely additive.
+
 ## Anthropic Direct (default)
 
 Set one secret in your GitHub Actions:
