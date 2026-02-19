@@ -37,6 +37,8 @@ dependencies = [
     "structlog>=24.4.0",
     # Observability
     "prometheus-client>=0.21.0",
+    # GitHub App token generation
+    "PyJWT[crypto]>=2.9.0",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +49,8 @@ dev = [
     "httpx>=0.28.0",      # for TestClient
     "ruff>=0.8.0",
     "mypy>=1.13.0",
+    "PyJWT>=2.9.0",       # for GitHub App token tests
+    "cryptography>=43.0.0",  # for RSA key generation in tests
 ]
 
 [project.scripts]

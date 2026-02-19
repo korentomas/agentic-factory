@@ -83,7 +83,7 @@ class GitHubTokenManager:
         payload = {
             "iat": now - 60,  # issued-at: 60 seconds in the past for clock skew
             "exp": now + _JWT_LIFETIME_SECONDS,
-            "iss": self.app_id,
+            "iss": str(self.app_id),
         }
         encoded: str = jwt.encode(payload, self.private_key, algorithm="RS256")
         logger.debug("github_tokens.jwt_generated", app_id=self.app_id)

@@ -92,7 +92,7 @@ class TestJWTGeneration:
         token = manager._generate_jwt()
         # Decode without verification to inspect claims
         payload = pyjwt.decode(token, options={"verify_signature": False})
-        assert payload["iss"] == _TEST_APP_ID
+        assert payload["iss"] == str(_TEST_APP_ID)
         assert "iat" in payload
         assert "exp" in payload
         assert payload["exp"] > payload["iat"]
