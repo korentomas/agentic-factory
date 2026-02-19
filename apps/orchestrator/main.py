@@ -167,6 +167,34 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "service": "agent-factory-orchestrator", "version": __version__}
 
 
+@app.get("/ready", tags=["system"], include_in_schema=False)
+async def ready() -> JSONResponse:
+    """
+    Readiness probe for Cloud Run startup probes.
+
+    Checks that required env vars are set and non-empty. Returns 503 with the
+    list of missing vars if any are absent, or 200 when the service is ready to
+    accept traffic.
+
+    Required vars (CLICKUP_WEBHOOK_SECRET is optional — its absence disables
+    HMAC verification, which is acceptable for development):
+    - CLICKUP_API_TOKEN
+    - SLACK_WEBHOOK_URL
+    """
+    required: list[str] = ["CLICKUP_API_TOKEN", "SLACK_WEBHOOK_URL"]
+    missing = [var for var in required if not os.getenv(var)]
+
+    if missing:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "not_ready", "missing": missing},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"status": "ready"},
+    )
+
+
 # ── Error handlers ─────────────────────────────────────────────────────────────
 @app.exception_handler(404)
 async def not_found(_request: Request, _exc: Exception) -> JSONResponse:

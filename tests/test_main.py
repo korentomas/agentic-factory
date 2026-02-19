@@ -238,3 +238,60 @@ def test_configure_logging_uses_json_renderer_by_default(
     processors = config["processors"]
     renderer = processors[-1]
     assert isinstance(renderer, structlog.processors.JSONRenderer)
+
+
+# ── Ready endpoint ───────────────────────────────────────────────────────────
+
+
+def test_ready_returns_200_when_all_required_vars_set(client: TestClient) -> None:
+    """GET /ready returns 200 with status ready when all required env vars are set."""
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+
+
+def test_ready_returns_503_when_clickup_api_token_missing(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /ready returns 503 with missing list when CLICKUP_API_TOKEN is absent."""
+    monkeypatch.delenv("CLICKUP_API_TOKEN")
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not_ready"
+    assert body["missing"] == ["CLICKUP_API_TOKEN"]
+
+
+def test_ready_returns_503_when_slack_webhook_url_missing(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /ready returns 503 with missing list when SLACK_WEBHOOK_URL is absent."""
+    monkeypatch.delenv("SLACK_WEBHOOK_URL")
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not_ready"
+    assert body["missing"] == ["SLACK_WEBHOOK_URL"]
+
+
+def test_ready_returns_503_with_all_missing_vars_when_none_set(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /ready reports all missing vars when both required vars are absent."""
+    monkeypatch.delenv("CLICKUP_API_TOKEN")
+    monkeypatch.delenv("SLACK_WEBHOOK_URL")
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not_ready"
+    assert set(body["missing"]) == {"CLICKUP_API_TOKEN", "SLACK_WEBHOOK_URL"}
