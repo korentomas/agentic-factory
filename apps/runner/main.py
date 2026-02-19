@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Literal, cast
@@ -286,6 +287,7 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
     try:
         # 1. Create workspace
         state.status = TaskStatus.RUNNING
+        state.started_at = time.monotonic()
         audit_log.record("task.started", task_id=task.task_id)
         log.info("task.workspace.creating")
         repo_path = await create_workspace(

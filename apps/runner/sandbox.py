@@ -15,6 +15,14 @@ import structlog
 
 logger = structlog.get_logger()
 
+DEFAULT_ALLOWED_HOSTS: list[str] = [
+    "pypi.org",
+    "files.pythonhosted.org",
+    "registry.npmjs.org",
+    "github.com",
+    "api.github.com",
+]
+
 
 @dataclass(frozen=True)
 class SandboxConfig:
@@ -28,6 +36,32 @@ class SandboxConfig:
     read_only_root: bool = True
     timeout_seconds: int = 3600
     allowed_hosts: list[str] = field(default_factory=list)
+
+    @classmethod
+    def with_network(
+        cls,
+        image: str = "lailatov/sandbox:python",
+        allowed_hosts: list[str] | None = None,
+        **kwargs: object,
+    ) -> SandboxConfig:
+        """Create a sandbox config with network access enabled.
+
+        Args:
+            image:         Docker image to use.
+            allowed_hosts: Hosts the container is allowed to reach.
+                           Defaults to DEFAULT_ALLOWED_HOSTS if None.
+            **kwargs:      Additional SandboxConfig field overrides.
+
+        Returns:
+            A SandboxConfig with network_mode="bridge" and the given hosts.
+        """
+        hosts = allowed_hosts if allowed_hosts is not None else list(DEFAULT_ALLOWED_HOSTS)
+        return cls(
+            image=image,
+            network_mode="bridge",
+            allowed_hosts=hosts,
+            **kwargs,  # type: ignore[arg-type]
+        )
 
 
 def build_docker_cmd(

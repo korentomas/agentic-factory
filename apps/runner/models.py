@@ -134,6 +134,7 @@ class TaskState:
         result:         Terminal result (set when complete/failed).
         workspace_path: Local checkout path.
         cancel_event:   Signaled to request cancellation.
+        started_at:     Monotonic timestamp when task started running.
         _async_task:    Handle to the background asyncio task.
     """
 
@@ -142,4 +143,5 @@ class TaskState:
     result: RunnerResult | None = None
     workspace_path: Path | None = None
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    started_at: float | None = None
     _async_task: asyncio.Task[None] | None = field(default=None, repr=False)
