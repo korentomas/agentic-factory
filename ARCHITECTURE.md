@@ -18,7 +18,7 @@ apps/orchestrator/
 ├── providers.py               Multi-provider config, engine selection, model tiering
 ├── runner_client.py           RunnerClient — HTTP bridge to Agent Runner service
 ├── routers/
-│   ├── clickup.py             ClickUp webhook — HMAC verify, dispatch to GitHub
+│   ├── clickup.py             ClickUp webhook — HMAC verify, DISPATCH_TARGET routing
 │   └── callbacks.py           GitHub Actions callbacks — notify Slack/ClickUp
 └── jobs/
     ├── codebase_scan.py       Weekly scanner — Claude agent + ClickUp ticket creator
@@ -37,7 +37,8 @@ apps/runner/                   Agent Runner — executes coding agents as subpro
     └── aider.py               Aider adapter — universal fallback via LiteLLM
 
 web/                           Next.js website — customer-facing SaaS
-├── src/app/                   App router pages (landing, login, dashboard, API routes)
+├── src/app/                   App router pages (landing, login, dashboard, privacy, terms)
+├── src/middleware.ts           Edge auth — protects /dashboard, redirects /login
 ├── src/components/            Bento grid, nav, pricing cards, footer
 ├── src/lib/                   Auth (NextAuth + GitHub), Stripe, utilities
 └── .env.example               Required env vars for local dev
