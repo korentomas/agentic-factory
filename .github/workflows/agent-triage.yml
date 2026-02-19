@@ -106,18 +106,15 @@ jobs:
             fi
           } > /tmp/issue_context.md
 
-      - name: Triage with Claude
+      - name: Triage with agent
         id: triage
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
+        uses: ./.github/actions/run-agent
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ steps.app-token.outputs.token }}
-          settings: ${{ secrets.CLAUDE_SETTINGS }}
-          allowed_bots: "agentfactory-bot[bot]"
+          engine: ${{ vars.TRIAGE_ENGINE || 'claude-code' }}
           prompt: |
             You are triaging a GitHub issue. Read /tmp/issue_context.md.
 
@@ -148,21 +145,24 @@ jobs:
             - confidence >= 0.8 → is_clear = true
             - Multiple valid interpretations → is_clear = false
             - Write the JSON file immediately, do not over-analyze
-          claude_args: "--max-turns 5 --model ${{ vars.TRIAGE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Bash'"
+          model: ${{ vars.TRIAGE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }}
+          max_turns: "5"
+          allowed_tools: "Read,Bash"
+          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          settings: ${{ secrets.CLAUDE_SETTINGS }}
+          allowed_bots: "agentfactory-bot[bot]"
 
-      - name: Triage with Claude (fallback model)
+      - name: Triage with agent (fallback model)
         id: triage_fallback
         if: steps.triage.outcome == 'failure' && vars.TRIAGE_FALLBACK_MODEL != ''
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
+        uses: ./.github/actions/run-agent
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ steps.app-token.outputs.token }}
-          settings: ${{ secrets.CLAUDE_SETTINGS }}
-          allowed_bots: "agentfactory-bot[bot]"
+          engine: ${{ vars.TRIAGE_ENGINE || 'claude-code' }}
           prompt: |
             You are triaging a GitHub issue. Read /tmp/issue_context.md.
 
@@ -193,7 +193,13 @@ jobs:
             - confidence >= 0.8 → is_clear = true
             - Multiple valid interpretations → is_clear = false
             - Write the JSON file immediately, do not over-analyze
-          claude_args: "--max-turns 5 --model ${{ vars.TRIAGE_FALLBACK_MODEL }} --allowedTools 'Read,Bash'"
+          model: ${{ vars.TRIAGE_FALLBACK_MODEL }}
+          max_turns: "5"
+          allowed_tools: "Read,Bash"
+          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          settings: ${{ secrets.CLAUDE_SETTINGS }}
+          allowed_bots: "agentfactory-bot[bot]"
 
       - name: Parse triage result
         id: parse

@@ -44,6 +44,50 @@ No fallback models are set by default. Review and audit stages don't need fallba
 
 Existing deployments that only set `CLAUDE_SONNET_MODEL` and `CLAUDE_OPUS_MODEL` continue to work with zero changes. The per-stage vars are purely additive.
 
+## Multi-Engine Support
+
+AgentFactory now supports multiple coding agent engines, not just Claude Code. Each engine is a different GitHub Action that runs an AI coding agent:
+
+| Engine | GitHub Action | Models | Cost Tracking |
+|--------|--------------|--------|---------------|
+| **claude-code** (default) | `anthropics/claude-code-action@v1` | Claude family, any Anthropic-compatible API | Yes |
+| **codex** | `openai/codex-action@v1` | GPT-4.1, o3, DeepSeek, Qwen | No |
+| **gemini-cli** | `google-github-actions/run-gemini-cli@v1` | Gemini 2.5 Flash/Pro | No |
+
+### Per-stage engine configuration
+
+Each pipeline stage can use a different engine. Set GitHub Actions variables:
+
+| Variable | Stage | Default |
+|----------|-------|---------|
+| `TRIAGE_ENGINE` | Triage | `claude-code` |
+| `PLAN_ENGINE` | ExecPlan | `claude-code` |
+| `WRITE_ENGINE` | Code writing | `claude-code` |
+| `REVIEW_ENGINE` | Code review | `claude-code` |
+| `AUDIT_ENGINE` | Spec audit | `claude-code` |
+| `REMEDIATION_ENGINE` | Remediation | `claude-code` |
+
+### Example: mixed engine setup
+
+Use Gemini for triage (free tier), Codex for writing, Claude for review:
+
+```
+TRIAGE_ENGINE=gemini-cli
+TRIAGE_MODEL=gemini-2.5-flash
+
+WRITE_ENGINE=codex
+WRITE_MODEL=gpt-4.1
+
+REVIEW_ENGINE=claude-code
+REVIEW_MODEL=claude-opus-4-6
+```
+
+### Backward compatibility
+
+With no `*_ENGINE` vars set, all workflows use `claude-code` exactly as before. The engine vars are purely additive.
+
+See [engines.md](engines.md) for engine-specific setup guides.
+
 ## Anthropic Direct (default)
 
 Set one secret in your GitHub Actions:

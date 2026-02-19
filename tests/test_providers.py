@@ -2,7 +2,7 @@
 Tests for the provider configuration module.
 
 Verifies model resolution logic, provider config lookup,
-tier escalation, and provider inference from model names.
+tier escalation, engine support, and provider inference from model names.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from apps.orchestrator.providers import (
     ModelTier,
     PipelineStage,
     derive_provider_from_model,
+    get_engine_for_stage,
     get_model_for_stage,
     get_provider_config,
 )
@@ -285,6 +286,164 @@ class TestDeriveProviderFromModel:
         """Slash in model name means OpenRouter regardless of env vars."""
         monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
         assert derive_provider_from_model("anthropic/claude-sonnet-4-6") == "openrouter"
+
+    def test_gpt_model_is_openai(self) -> None:
+        """gpt-* models map to openai provider."""
+        assert derive_provider_from_model("gpt-4.1") == "openai"
+        assert derive_provider_from_model("gpt-4.1-mini") == "openai"
+
+    def test_o3_model_is_openai(self) -> None:
+        """o3* models map to openai provider."""
+        assert derive_provider_from_model("o3") == "openai"
+        assert derive_provider_from_model("o3-mini") == "openai"
+
+    def test_o1_model_is_openai(self) -> None:
+        """o1-* models map to openai provider."""
+        assert derive_provider_from_model("o1-preview") == "openai"
+
+    def test_gemini_model_is_google(self) -> None:
+        """gemini-* models map to google provider."""
+        assert derive_provider_from_model("gemini-2.5-flash") == "google"
+        assert derive_provider_from_model("gemini-2.5-pro") == "google"
+
+    def test_deepseek_model_is_deepseek(self) -> None:
+        """deepseek-* models map to deepseek provider."""
+        assert derive_provider_from_model("deepseek-chat") == "deepseek"
+        assert derive_provider_from_model("deepseek-reasoner") == "deepseek"
+
+    def test_qwen_model_is_qwen(self) -> None:
+        """qwen-* models map to qwen provider."""
+        assert derive_provider_from_model("qwen-max-latest") == "qwen"
+        assert derive_provider_from_model("qwen-coder-plus-latest") == "qwen"
+
+    def test_slashed_non_anthropic_still_openrouter(self) -> None:
+        """Slash in model name always means OpenRouter, even for non-Anthropic."""
+        assert derive_provider_from_model("openai/gpt-4.1") == "openrouter"
+        assert derive_provider_from_model("google/gemini-2.5-flash") == "openrouter"
+
+
+# ── Engine support ────────────────────────────────────────────────────────────
+
+
+class TestProviderEngineField:
+    """Engine field on ProviderConfig."""
+
+    def test_all_providers_have_engine_field(self) -> None:
+        """Every provider has a non-empty engine field."""
+        for name, config in PROVIDERS.items():
+            assert config.engine, f"Provider {name!r} has empty engine"
+            assert config.engine in ("claude-code", "codex", "gemini-cli"), (
+                f"Provider {name!r} has unknown engine {config.engine!r}"
+            )
+
+    def test_anthropic_engine_is_claude_code(self) -> None:
+        """Anthropic uses claude-code engine."""
+        assert PROVIDERS["anthropic"].engine == "claude-code"
+
+    def test_openrouter_engine_is_claude_code(self) -> None:
+        """OpenRouter uses claude-code engine (Anthropic-compatible gateway)."""
+        assert PROVIDERS["openrouter"].engine == "claude-code"
+
+    def test_openai_engine_is_codex(self) -> None:
+        """OpenAI uses codex engine."""
+        assert PROVIDERS["openai"].engine == "codex"
+
+    def test_google_engine_is_gemini_cli(self) -> None:
+        """Google AI uses gemini-cli engine."""
+        assert PROVIDERS["google"].engine == "gemini-cli"
+
+    def test_deepseek_engine_is_codex(self) -> None:
+        """DeepSeek uses codex engine."""
+        assert PROVIDERS["deepseek"].engine == "codex"
+
+    def test_qwen_engine_is_codex(self) -> None:
+        """Qwen uses codex engine."""
+        assert PROVIDERS["qwen"].engine == "codex"
+
+
+class TestNewProviderConfigs:
+    """New provider configurations have correct tiers."""
+
+    def test_openai_provider_config_tiers(self) -> None:
+        """OpenAI provider has all tiers populated."""
+        config = PROVIDERS["openai"]
+        assert config.models_by_tier[ModelTier.FAST] == "gpt-4.1-mini"
+        assert config.models_by_tier[ModelTier.STANDARD] == "gpt-4.1"
+        assert config.models_by_tier[ModelTier.PREMIUM] == "o3"
+
+    def test_google_provider_config_tiers(self) -> None:
+        """Google provider has all tiers populated."""
+        config = PROVIDERS["google"]
+        assert config.models_by_tier[ModelTier.FAST] == "gemini-2.5-flash"
+        assert config.models_by_tier[ModelTier.PREMIUM] == "gemini-2.5-pro"
+
+    def test_deepseek_provider_config_tiers(self) -> None:
+        """DeepSeek provider has all tiers populated."""
+        config = PROVIDERS["deepseek"]
+        assert config.models_by_tier[ModelTier.FAST] == "deepseek-chat"
+        assert config.models_by_tier[ModelTier.PREMIUM] == "deepseek-reasoner"
+
+    def test_qwen_provider_config_tiers(self) -> None:
+        """Qwen provider has all tiers populated."""
+        config = PROVIDERS["qwen"]
+        assert config.models_by_tier[ModelTier.FAST] == "qwen-coder-plus-latest"
+        assert config.models_by_tier[ModelTier.PREMIUM] == "qwen-max-latest"
+
+    def test_new_providers_do_not_support_cost_tracking(self) -> None:
+        """Non-Anthropic providers don't support cost tracking."""
+        for name in ("openai", "google", "deepseek", "qwen"):
+            assert PROVIDERS[name].supports_cost_tracking is False, (
+                f"Provider {name!r} should not support cost tracking"
+            )
+
+
+class TestGetEngineForStage:
+    """Engine resolution per pipeline stage."""
+
+    def test_default_returns_provider_engine(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no env override, returns the provider's default engine."""
+        monkeypatch.delenv("WRITE_ENGINE", raising=False)
+        monkeypatch.delenv("AGENTFACTORY_PROVIDER", raising=False)
+        engine = get_engine_for_stage(PipelineStage.WRITE)
+        assert engine == "claude-code"
+
+    def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """WRITE_ENGINE env var overrides provider default."""
+        monkeypatch.setenv("WRITE_ENGINE", "codex")
+        engine = get_engine_for_stage(PipelineStage.WRITE)
+        assert engine == "codex"
+
+    def test_triage_engine_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """TRIAGE_ENGINE env var works for triage stage."""
+        monkeypatch.setenv("TRIAGE_ENGINE", "gemini-cli")
+        engine = get_engine_for_stage(PipelineStage.TRIAGE)
+        assert engine == "gemini-cli"
+
+    def test_provider_openai_returns_codex(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """OpenAI provider returns codex engine by default."""
+        monkeypatch.delenv("WRITE_ENGINE", raising=False)
+        engine = get_engine_for_stage(PipelineStage.WRITE, provider_name="openai")
+        assert engine == "codex"
+
+    def test_provider_google_returns_gemini_cli(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Google provider returns gemini-cli engine by default."""
+        monkeypatch.delenv("REVIEW_ENGINE", raising=False)
+        engine = get_engine_for_stage(PipelineStage.REVIEW, provider_name="google")
+        assert engine == "gemini-cli"
+
+    def test_env_override_beats_provider(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stage env var takes precedence over provider's engine."""
+        monkeypatch.setenv("WRITE_ENGINE", "gemini-cli")
+        engine = get_engine_for_stage(PipelineStage.WRITE, provider_name="openai")
+        assert engine == "gemini-cli"
 
 
 # ── RISK_TIER_ESCALATION ──────────────────────────────────────────────────────

@@ -134,12 +134,16 @@ jobs:
 
       - name: Generate ExecPlan (complex tasks only)
         if: ${{ github.event.client_payload.complexity == 'high' }}
-        uses: anthropics/claude-code-action@v1
+        uses: ./.github/actions/run-agent
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          engine: ${{ vars.PLAN_ENGINE || 'claude-code' }}
+          model: ${{ vars.PLAN_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }}
+          max_turns: "10"
+          allowed_tools: "Read,Write,Edit,Bash,Glob,Grep"
+          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           allowed_bots: "agentfactory-bot[bot]"
@@ -174,7 +178,6 @@ jobs:
             Ticket title: ${{ github.event.client_payload.title }}
             Ticket description:
             ${{ github.event.client_payload.description }}
-          claude_args: "--max-turns 10 --model ${{ vars.PLAN_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep'"
 
       - name: Capture plan costs
         if: ${{ github.event.client_payload.complexity == 'high' }}
@@ -208,12 +211,16 @@ jobs:
       - name: Write code
         id: agent_write
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
+        uses: ./.github/actions/run-agent
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          engine: ${{ vars.WRITE_ENGINE || 'claude-code' }}
+          model: ${{ vars.WRITE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }}
+          max_turns: "40"
+          allowed_tools: "Read,Write,Edit,Bash,Glob,Grep,MultiEdit"
+          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           allowed_bots: "agentfactory-bot[bot]"
@@ -244,7 +251,6 @@ jobs:
             - NEO4J_URI=bolt://localhost:7687
             - NEO4J_PASSWORD=testing123
             - REDIS_URL=redis://localhost:6379
-          claude_args: "--max-turns 40 --model ${{ vars.WRITE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
 
       - name: Capture write costs
         id: write_cost
@@ -264,12 +270,16 @@ jobs:
 
       - name: Write code (fallback model)
         if: steps.agent_write.outcome == 'failure' && vars.WRITE_FALLBACK_MODEL != ''
-        uses: anthropics/claude-code-action@v1
+        uses: ./.github/actions/run-agent
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          engine: ${{ vars.WRITE_ENGINE || 'claude-code' }}
+          model: ${{ vars.WRITE_FALLBACK_MODEL }}
+          max_turns: "40"
+          allowed_tools: "Read,Write,Edit,Bash,Glob,Grep,MultiEdit"
+          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}
           settings: ${{ secrets.CLAUDE_SETTINGS }}
           allowed_bots: "agentfactory-bot[bot]"
@@ -300,7 +310,6 @@ jobs:
             - NEO4J_URI=bolt://localhost:7687
             - NEO4J_PASSWORD=testing123
             - REDIS_URL=redis://localhost:6379
-          claude_args: "--max-turns 40 --model ${{ vars.WRITE_FALLBACK_MODEL }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep,MultiEdit'"
 
       - name: Resolve models used
         id: models

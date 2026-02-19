@@ -190,14 +190,18 @@ jobs:
 
       - name: Claude code review
         id: review
-        uses: anthropics/claude-code-action@v1
+        uses: ./.github/actions/run-agent
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          settings: ${{ secrets.CLAUDE_SETTINGS }}
+          engine: ${{ vars.REVIEW_ENGINE || 'claude-code' }}
+          model: ${{ vars.REVIEW_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }}
+          max_turns: "15"
+          allowed_tools: "Read,Glob,Grep"
+          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}
+          settings: ${{ secrets.CLAUDE_SETTINGS }}
           allowed_bots: "agentfactory-bot[bot]"
           prompt: |
             Review this PR as a senior engineer familiar with this codebase.
@@ -222,7 +226,6 @@ jobs:
             Risk tier for this PR: ${{ needs.risk-gate.outputs.tier }}
 
             If the risk tier is HIGH, be thorough. If LOW (docs only), be brief.
-          claude_args: "--max-turns 15 --model ${{ vars.REVIEW_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Glob,Grep'"
 
   # ── Step 4: Spec coverage audit ──────────────────────────────────────────────
   # Critical: separate from correctness review.
@@ -263,14 +266,18 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Spec coverage audit
-        uses: anthropics/claude-code-action@v1
+        uses: ./.github/actions/run-agent
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          settings: ${{ secrets.CLAUDE_SETTINGS }}
+          engine: ${{ vars.AUDIT_ENGINE || 'claude-code' }}
+          model: ${{ vars.AUDIT_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }}
+          max_turns: "15"
+          allowed_tools: "Bash,Glob,Grep,Read"
+          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}
+          settings: ${{ secrets.CLAUDE_SETTINGS }}
           allowed_bots: "agentfactory-bot[bot]"
           prompt: |
             SPEC COVERAGE AUDIT — do NOT read any implementation files.
@@ -300,7 +307,6 @@ jobs:
 
             Do not read implementation files. If you find yourself reading a
             non-test file, stop and only look at test files.
-          claude_args: "--max-turns 15 --model ${{ vars.AUDIT_MODEL || vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Bash,Glob,Grep,Read'"
 
   # ── Step 5: Callback to orchestrator ─────────────────────────────────────────
   notify-orchestrator:

@@ -9,6 +9,7 @@ Usage::
 
     from apps.orchestrator.providers import (
         get_model_for_stage,
+        get_engine_for_stage,
         get_provider_config,
         derive_provider_from_model,
         ModelTier,
@@ -109,6 +110,10 @@ class ProviderConfig:
         api_key_env:            Env var name holding the API key.
         models_by_tier:         Mapping of ModelTier to default model name.
         supports_cost_tracking: Whether the provider returns cost data in responses.
+        engine:                 GitHub Action engine for this provider
+                                (claude-code, codex, or gemini-cli).
+        api_key_env_name:       Env var name passed to non-Anthropic engines
+                                (e.g. OPENAI_API_KEY for codex).
     """
 
     name: str
@@ -116,6 +121,8 @@ class ProviderConfig:
     api_key_env: str
     models_by_tier: dict[ModelTier, str]
     supports_cost_tracking: bool = True
+    engine: str = "claude-code"
+    api_key_env_name: str = ""
 
 
 # ── Built-in provider definitions ─────────────────────────────────────────────
@@ -163,6 +170,58 @@ PROVIDERS: dict[str, ProviderConfig] = {
             ModelTier.PREMIUM: "claude-opus-4-6",
         },
         supports_cost_tracking=True,
+    ),
+    "openai": ProviderConfig(
+        name="OpenAI",
+        base_url="",
+        api_key_env="OPENAI_API_KEY",
+        models_by_tier={
+            ModelTier.FAST: "gpt-4.1-mini",
+            ModelTier.STANDARD: "gpt-4.1",
+            ModelTier.PREMIUM: "o3",
+        },
+        supports_cost_tracking=False,
+        engine="codex",
+        api_key_env_name="OPENAI_API_KEY",
+    ),
+    "google": ProviderConfig(
+        name="Google AI",
+        base_url="",
+        api_key_env="GEMINI_API_KEY",
+        models_by_tier={
+            ModelTier.FAST: "gemini-2.5-flash",
+            ModelTier.STANDARD: "gemini-2.5-flash",
+            ModelTier.PREMIUM: "gemini-2.5-pro",
+        },
+        supports_cost_tracking=False,
+        engine="gemini-cli",
+        api_key_env_name="GEMINI_API_KEY",
+    ),
+    "deepseek": ProviderConfig(
+        name="DeepSeek",
+        base_url="",
+        api_key_env="DEEPSEEK_API_KEY",
+        models_by_tier={
+            ModelTier.FAST: "deepseek-chat",
+            ModelTier.STANDARD: "deepseek-chat",
+            ModelTier.PREMIUM: "deepseek-reasoner",
+        },
+        supports_cost_tracking=False,
+        engine="codex",
+        api_key_env_name="DEEPSEEK_API_KEY",
+    ),
+    "qwen": ProviderConfig(
+        name="Qwen (Alibaba)",
+        base_url="",
+        api_key_env="DASHSCOPE_API_KEY",
+        models_by_tier={
+            ModelTier.FAST: "qwen-coder-plus-latest",
+            ModelTier.STANDARD: "qwen-coder-plus-latest",
+            ModelTier.PREMIUM: "qwen-max-latest",
+        },
+        supports_cost_tracking=False,
+        engine="codex",
+        api_key_env_name="DASHSCOPE_API_KEY",
     ),
 }
 
@@ -240,6 +299,32 @@ def get_model_for_stage(
     return provider.models_by_tier[effective_tier]
 
 
+def get_engine_for_stage(
+    stage: PipelineStage,
+    provider_name: str | None = None,
+) -> str:
+    """Return the engine name for a given stage and provider.
+
+    Resolution order:
+
+    1. Stage-specific engine env var (e.g. ``WRITE_ENGINE``, ``TRIAGE_ENGINE``)
+    2. Provider's default engine
+
+    Args:
+        stage:         Pipeline stage.
+        provider_name: Optional provider override.
+
+    Returns:
+        Engine name string (``"claude-code"``, ``"codex"``, or ``"gemini-cli"``).
+    """
+    stage_env_key = f"{stage.value.upper()}_ENGINE"
+    engine_override = _get_env(stage_env_key)
+    if engine_override:
+        return engine_override
+    provider = get_provider_config(provider_name)
+    return provider.engine
+
+
 def derive_provider_from_model(model_name: str) -> str:
     """Infer the provider name from a model name string.
 
@@ -247,8 +332,11 @@ def derive_provider_from_model(model_name: str) -> str:
 
     - Model names with a ``/`` (e.g. ``anthropic/claude-sonnet-4-6``,
       ``deepseek/deepseek-chat``) indicate OpenRouter routing.
-    - Bare model names (e.g. ``claude-sonnet-4-6``) indicate direct provider
-      access — Anthropic by default, or Bedrock/Vertex based on env vars.
+    - ``gpt-*``, ``o1-*``, ``o3*`` → ``"openai"``
+    - ``gemini-*`` → ``"google"``
+    - ``deepseek-*`` → ``"deepseek"``
+    - ``qwen-*`` → ``"qwen"``
+    - Bare ``claude-*`` names → Anthropic direct, Bedrock, or Vertex.
 
     Args:
         model_name: Model name, possibly with ``provider/`` prefix.
@@ -258,6 +346,17 @@ def derive_provider_from_model(model_name: str) -> str:
     """
     if "/" in model_name:
         return "openrouter"
+
+    lower = model_name.lower()
+
+    if lower.startswith(("gpt-", "o1-", "o3")):
+        return "openai"
+    if lower.startswith("gemini-"):
+        return "google"
+    if lower.startswith("deepseek-"):
+        return "deepseek"
+    if lower.startswith("qwen-"):
+        return "qwen"
 
     if _get_env("CLAUDE_CODE_USE_BEDROCK") == "1":
         return "bedrock"

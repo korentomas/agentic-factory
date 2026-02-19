@@ -1,0 +1,160 @@
+name: "Run Agent"
+description: >
+  Unified composite action that dispatches to the right coding agent engine
+  (claude-code, codex, or gemini-cli) based on a single `engine` input.
+  Normalizes outputs across all engines.
+
+inputs:
+  engine:
+    description: "Which coding agent engine to use: claude-code, codex, or gemini-cli"
+    required: false
+    default: "claude-code"
+  prompt:
+    description: "Task instructions for the agent"
+    required: true
+  model:
+    description: "Model name (engine-specific format)"
+    required: false
+    default: ""
+  max_turns:
+    description: "Max agentic turns (claude-code only)"
+    required: false
+    default: "40"
+  allowed_tools:
+    description: "Tool allowlist (claude-code only, e.g. 'Read,Bash,Write')"
+    required: false
+    default: ""
+  api_key:
+    description: "API key for the engine (Anthropic, OpenAI, or Google AI Studio key)"
+    required: true
+  github_token:
+    description: "GitHub token for repo access"
+    required: true
+  settings:
+    description: "Engine-specific settings JSON"
+    required: false
+    default: ""
+  allowed_bots:
+    description: "Bot usernames allowed to trigger (claude-code and codex)"
+    required: false
+    default: ""
+  show_full_output:
+    description: "Write execution output file (claude-code only)"
+    required: false
+    default: "false"
+  sandbox:
+    description: "Codex sandbox mode: workspace-write, read-only, or danger-full-access"
+    required: false
+    default: "workspace-write"
+  gemini_model:
+    description: "Gemini model override (gemini-cli only, e.g. gemini-2.5-flash)"
+    required: false
+    default: ""
+  env_vars:
+    description: "Extra env vars as KEY=VALUE lines (one per line)"
+    required: false
+    default: ""
+
+outputs:
+  cost_usd:
+    description: "Total cost in USD (0 if engine doesn't report)"
+    value: ${{ steps.normalize.outputs.cost_usd }}
+  num_turns:
+    description: "Number of agentic turns (0 if unknown)"
+    value: ${{ steps.normalize.outputs.num_turns }}
+  duration_ms:
+    description: "Wall-clock duration in milliseconds"
+    value: ${{ steps.normalize.outputs.duration_ms }}
+  execution_file:
+    description: "Path to execution output file (if available)"
+    value: ${{ steps.normalize.outputs.execution_file }}
+
+runs:
+  using: "composite"
+  steps:
+    # ── Record start time ──────────────────────────────────────────────
+    - name: Record start time
+      id: timer
+      shell: bash
+      run: echo "start_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+
+    # ── Engine: claude-code ────────────────────────────────────────────
+    - name: Run agent (claude-code)
+      id: claude
+      if: inputs.engine == 'claude-code'
+      uses: anthropics/claude-code-action@v1
+      env:
+        ANTHROPIC_BASE_URL: ${{ env.ANTHROPIC_BASE_URL }}
+        ANTHROPIC_AUTH_TOKEN: ${{ env.ANTHROPIC_AUTH_TOKEN }}
+      with:
+        anthropic_api_key: ${{ inputs.api_key }}
+        github_token: ${{ inputs.github_token }}
+        prompt: ${{ inputs.prompt }}
+        settings: ${{ inputs.settings }}
+        allowed_bots: ${{ inputs.allowed_bots }}
+        show_full_output: ${{ inputs.show_full_output }}
+        claude_args: >-
+          --max-turns ${{ inputs.max_turns }}
+          ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+          ${{ inputs.allowed_tools != '' && format('--allowedTools ''{0}''', inputs.allowed_tools) || '' }}
+
+    # ── Engine: codex ──────────────────────────────────────────────────
+    - name: Run agent (codex)
+      id: codex
+      if: inputs.engine == 'codex'
+      uses: openai/codex-action@v1
+      with:
+        openai-api-key: ${{ inputs.api_key }}
+        prompt: ${{ inputs.prompt }}
+        model: ${{ inputs.model }}
+        sandbox: ${{ inputs.sandbox }}
+        output-file: /tmp/codex-output.md
+        allow-bots: ${{ inputs.allowed_bots != '' }}
+
+    # ── Engine: gemini-cli ─────────────────────────────────────────────
+    - name: Run agent (gemini-cli)
+      id: gemini
+      if: inputs.engine == 'gemini-cli'
+      uses: google-github-actions/run-gemini-cli@v1
+      with:
+        gemini_api_key: ${{ inputs.api_key }}
+        prompt: ${{ inputs.prompt }}
+        gemini_model: ${{ inputs.gemini_model != '' && inputs.gemini_model || inputs.model }}
+        settings: ${{ inputs.settings }}
+
+    # ── Normalize outputs ──────────────────────────────────────────────
+    - name: Normalize outputs
+      id: normalize
+      shell: bash
+      run: |
+        END_MS=$(date +%s%3N)
+        START_MS="${{ steps.timer.outputs.start_ms }}"
+        DURATION_MS=$(( END_MS - START_MS ))
+
+        COST="0"
+        TURNS="0"
+        EXEC_FILE=""
+
+        case "${{ inputs.engine }}" in
+          claude-code)
+            EXEC_FILE="/home/runner/work/_temp/claude-execution-output.json"
+            if [ -f "$EXEC_FILE" ]; then
+              LAST_LINE=$(tail -1 "$EXEC_FILE")
+              COST=$(echo "$LAST_LINE" | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
+              TURNS=$(echo "$LAST_LINE" | jq -r '.num_turns // 0' 2>/dev/null || echo "0")
+              DURATION_MS=$(echo "$LAST_LINE" | jq -r '.duration_ms // 0' 2>/dev/null || echo "$DURATION_MS")
+            fi
+            ;;
+          codex)
+            EXEC_FILE="/tmp/codex-output.md"
+            # Codex doesn't report cost or turns
+            ;;
+          gemini-cli)
+            # Gemini CLI doesn't report cost or turns
+            ;;
+        esac
+
+        echo "cost_usd=$COST" >> "$GITHUB_OUTPUT"
+        echo "num_turns=$TURNS" >> "$GITHUB_OUTPUT"
+        echo "duration_ms=$DURATION_MS" >> "$GITHUB_OUTPUT"
+        echo "execution_file=$EXEC_FILE" >> "$GITHUB_OUTPUT"
