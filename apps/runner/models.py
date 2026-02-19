@@ -7,6 +7,7 @@ Both are frozen dataclasses — immutable after construction.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -49,6 +50,9 @@ class RunnerTask:
         env_vars:         Additional env vars to inject into the engine process.
         constitution:     CLAUDE.md contents or path to inject.
         callback_url:     URL to POST result to when complete.
+        max_cost_usd:     Cost ceiling (0.0 = unlimited).
+        sandbox_mode:     Run engine in Docker sandbox.
+        sandbox_image:    Docker image for sandbox execution.
     """
 
     task_id: str
@@ -66,6 +70,9 @@ class RunnerTask:
     env_vars: dict[str, str] = field(default_factory=dict)
     constitution: str = ""
     callback_url: str | None = None
+    max_cost_usd: float = 0.0
+    sandbox_mode: bool = False
+    sandbox_image: str = "lailatov/sandbox:python"
 
     def __post_init__(self) -> None:
         if not self.task_id:
@@ -120,9 +127,19 @@ class TaskState:
 
     Unlike RunnerTask and RunnerResult (which are frozen), this tracks
     the evolving status during execution.
+
+    Attributes:
+        task:           The frozen task definition.
+        status:         Current lifecycle status.
+        result:         Terminal result (set when complete/failed).
+        workspace_path: Local checkout path.
+        cancel_event:   Signaled to request cancellation.
+        _async_task:    Handle to the background asyncio task.
     """
 
     task: RunnerTask
     status: TaskStatus = TaskStatus.PENDING
     result: RunnerResult | None = None
     workspace_path: Path | None = None
+    cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    _async_task: asyncio.Task[None] | None = field(default=None, repr=False)

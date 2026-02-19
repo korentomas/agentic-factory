@@ -25,7 +25,9 @@ import structlog
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from apps.runner.audit import AuditLog
 from apps.runner.engines.registry import select_engine
+from apps.runner.middleware import APIKeyMiddleware
 from apps.runner.models import RunnerResult, RunnerTask, TaskState, TaskStatus
 from apps.runner.workspace import (
     cleanup_workspace,
@@ -46,6 +48,9 @@ def _get_env(key: str, default: str = "") -> str:
 # ── In-memory task store ─────────────────────────────────────────────────────
 # For v1, tasks are stored in memory. Future: Redis or database.
 _tasks: dict[str, TaskState] = {}
+
+# ── Audit log ────────────────────────────────────────────────────────────────
+audit_log = AuditLog()
 
 
 # ── Pydantic request/response models ────────────────────────────────────────
@@ -70,6 +75,9 @@ class TaskRequest(BaseModel):
     constitution: str = ""
     callback_url: str | None = None
     github_token: str | None = None
+    max_cost_usd: float = 0.0
+    sandbox_mode: bool = False
+    sandbox_image: str = "lailatov/sandbox:python"
 
 
 class TaskResponse(BaseModel):
@@ -107,7 +115,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     for task_id, state in _tasks.items():
         if state.status == TaskStatus.RUNNING:
             logger.warning("runner.shutdown.orphan", task_id=task_id)
+            state.cancel_event.set()
+            if state._async_task and not state._async_task.done():
+                state._async_task.cancel()
     _tasks.clear()
+    audit_log.clear()
     logger.info("runner.shutdown")
 
 
@@ -119,6 +131,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.add_middleware(APIKeyMiddleware)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -173,13 +186,19 @@ async def submit_task(request: TaskRequest) -> TaskResponse:
         env_vars=request.env_vars,
         constitution=request.constitution,
         callback_url=request.callback_url,
+        max_cost_usd=request.max_cost_usd,
+        sandbox_mode=request.sandbox_mode,
+        sandbox_image=request.sandbox_image,
     )
 
     state = TaskState(task=runner_task)
     _tasks[request.task_id] = state
 
-    # Fire and forget — run in background
-    asyncio.create_task(_execute_task(state, request.github_token))
+    audit_log.record("task.submitted", task_id=request.task_id, engine=request.engine)
+
+    # Fire and forget — run in background, store handle for cancellation
+    bg_task = asyncio.create_task(_execute_task(state, request.github_token))
+    state._async_task = bg_task
 
     return TaskResponse(
         task_id=request.task_id,
@@ -223,7 +242,13 @@ async def cancel_task(task_id: str) -> dict[str, str]:
             detail=f"Task {task_id} is {state.status.value}, cannot cancel",
         )
 
+    # Signal cancellation via event and cancel the async task
+    state.cancel_event.set()
+    if state._async_task and not state._async_task.done():
+        state._async_task.cancel()
+
     state.status = TaskStatus.CANCELLED
+    audit_log.record("task.cancelled", task_id=task_id)
     return {"task_id": task_id, "status": "cancelled"}
 
 
@@ -238,6 +263,7 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
     try:
         # 1. Create workspace
         state.status = TaskStatus.RUNNING
+        audit_log.record("task.started", task_id=task.task_id)
         log.info("task.workspace.creating")
         repo_path = await create_workspace(
             task_id=task.task_id,
@@ -252,6 +278,11 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
         engine = select_engine(
             model=task.model,
             preferred_engine=task.engine,
+        )
+        audit_log.record(
+            "task.engine_selected",
+            task_id=task.task_id,
+            engine=engine.name,
         )
         log.info("task.engine.selected", engine=engine.name)
 
@@ -302,7 +333,25 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             TaskStatus.COMPLETE if result.status == "success"
             else TaskStatus.FAILED
         )
+        audit_log.record(
+            "task.completed",
+            task_id=task.task_id,
+            status=state.status.value,
+            cost_usd=result.cost_usd,
+        )
         log.info("task.done", status=state.status.value)
+
+    except asyncio.CancelledError:
+        log.warning("task.cancelled")
+        state.status = TaskStatus.CANCELLED
+        state.result = RunnerResult(
+            task_id=task.task_id,
+            status="cancelled",
+            engine=task.engine or "unknown",
+            model=task.model or "unknown",
+            error_message="Task was cancelled",
+        )
+        audit_log.record("task.cancelled", task_id=task.task_id)
 
     except Exception as exc:
         log.error("task.failed", error=str(exc))
@@ -313,6 +362,11 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             engine=task.engine or "unknown",
             model=task.model or "unknown",
             error_message=str(exc),
+        )
+        audit_log.record(
+            "task.failed",
+            task_id=task.task_id,
+            error=str(exc),
         )
 
     finally:

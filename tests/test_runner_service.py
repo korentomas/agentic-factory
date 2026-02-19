@@ -1,12 +1,13 @@
 """Tests for apps.runner.main — the Agent Runner HTTP service."""
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from apps.runner.main import _execute_task, _tasks, app
+from apps.runner.main import _execute_task, _tasks, app, audit_log
 from apps.runner.models import RunnerResult, RunnerTask, TaskState, TaskStatus
 
 
@@ -14,8 +15,10 @@ from apps.runner.models import RunnerResult, RunnerTask, TaskState, TaskStatus
 def _clear_tasks():
     """Clear task store between tests."""
     _tasks.clear()
+    audit_log.clear()
     yield
     _tasks.clear()
+    audit_log.clear()
 
 
 client = TestClient(app)
@@ -123,6 +126,23 @@ class TestCancelTask:
         assert resp.status_code == 200
         assert _tasks["t1"].status == TaskStatus.CANCELLED
 
+    def test_cancel_sets_event(self):
+        """Cancellation signals the cancel_event."""
+        task = RunnerTask(
+            task_id="t1",
+            repo_url="https://github.com/org/repo",
+            branch="b",
+            base_branch="main",
+            description="desc",
+        )
+        state = TaskState(task=task, status=TaskStatus.RUNNING)
+        _tasks["t1"] = state
+
+        assert not state.cancel_event.is_set()
+        resp = client.post("/tasks/t1/cancel")
+        assert resp.status_code == 200
+        assert state.cancel_event.is_set()
+
     def test_cancel_completed_fails(self):
         task = RunnerTask(
             task_id="t1",
@@ -135,6 +155,21 @@ class TestCancelTask:
 
         resp = client.post("/tasks/t1/cancel")
         assert resp.status_code == 400
+
+    def test_cancel_records_audit(self):
+        """Cancellation creates an audit event."""
+        task = RunnerTask(
+            task_id="t1",
+            repo_url="https://github.com/org/repo",
+            branch="b",
+            base_branch="main",
+            description="desc",
+        )
+        _tasks["t1"] = TaskState(task=task, status=TaskStatus.PENDING)
+
+        client.post("/tasks/t1/cancel")
+        events = audit_log.get_events("t1")
+        assert any(e.action == "task.cancelled" for e in events)
 
 
 class TestSubmitTask:
@@ -175,6 +210,45 @@ class TestSubmitTask:
             "task_id": "t1",
         })
         assert resp.status_code == 422
+
+    def test_submit_records_audit(self):
+        """Submission creates an audit event."""
+        client.post("/tasks", json={
+            "task_id": "t-audit",
+            "repo_url": "https://github.com/org/repo",
+            "branch": "b",
+            "description": "desc",
+        })
+        events = audit_log.get_events("t-audit")
+        assert any(e.action == "task.submitted" for e in events)
+
+    def test_submit_with_sandbox_fields(self):
+        """Sandbox fields are accepted in the request."""
+        resp = client.post("/tasks", json={
+            "task_id": "t-sandbox",
+            "repo_url": "https://github.com/org/repo",
+            "branch": "b",
+            "description": "desc",
+            "max_cost_usd": 5.0,
+            "sandbox_mode": True,
+            "sandbox_image": "custom/image:latest",
+        })
+        assert resp.status_code == 202
+        state = _tasks["t-sandbox"]
+        assert state.task.max_cost_usd == 5.0
+        assert state.task.sandbox_mode is True
+        assert state.task.sandbox_image == "custom/image:latest"
+
+    def test_submit_stores_async_task_handle(self):
+        """Background task handle is stored on TaskState."""
+        client.post("/tasks", json={
+            "task_id": "t-handle",
+            "repo_url": "https://github.com/org/repo",
+            "branch": "b",
+            "description": "desc",
+        })
+        state = _tasks["t-handle"]
+        assert state._async_task is not None
 
 
 # ── _execute_task tests ──────────────────────────────────────────────────────
@@ -247,6 +321,43 @@ class TestExecuteTask:
         assert state.result is not None
         assert state.result.commit_sha == "abc123"
         assert state.result.files_changed == ["src/fix.py"]
+
+    @pytest.mark.asyncio
+    async def test_execute_records_audit_trail(self):
+        """Execute records start, engine_selected, and completed audit events."""
+        state = self._make_state("t-audit")
+        mock_engine = AsyncMock()
+        mock_engine.name = "claude-code"
+        mock_engine.run = AsyncMock(return_value=RunnerResult(
+            task_id="t-audit",
+            status="failure",
+            engine="claude-code",
+            model="claude-sonnet-4-6",
+            error_message="test",
+        ))
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        events = audit_log.get_events("t-audit")
+        actions = [e.action for e in events]
+        assert "task.started" in actions
+        assert "task.engine_selected" in actions
+        assert "task.completed" in actions
 
     @pytest.mark.asyncio
     async def test_execute_engine_failure(self):
@@ -385,3 +496,55 @@ class TestExecuteTask:
             await _execute_task(state)
 
         mock_cleanup.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_cancelled_error(self):
+        """CancelledError results in CANCELLED status."""
+        state = self._make_state("t-cancel")
+        mock_engine = AsyncMock()
+        mock_engine.name = "claude-code"
+        mock_engine.run = AsyncMock(side_effect=asyncio.CancelledError)
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        assert state.status == TaskStatus.CANCELLED
+        assert state.result is not None
+        assert state.result.status == "cancelled"
+        assert state.result.error_message == "Task was cancelled"
+
+    @pytest.mark.asyncio
+    async def test_execute_failure_records_audit(self):
+        """Exception during execution records a task.failed audit event."""
+        state = self._make_state("t-fail-audit")
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        events = audit_log.get_events("t-fail-audit")
+        actions = [e.action for e in events]
+        assert "task.failed" in actions
