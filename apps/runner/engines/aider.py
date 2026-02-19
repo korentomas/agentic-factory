@@ -13,6 +13,7 @@ import re
 
 import structlog
 
+from apps.orchestrator.providers import PROVIDERS, derive_provider_from_model, get_provider_config
 from apps.runner.engines.subprocess_util import run_engine_subprocess, tail
 from apps.runner.models import RunnerResult, RunnerTask
 from apps.runner.sandbox import SandboxConfig, build_docker_cmd
@@ -25,18 +26,26 @@ def _get_env(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
-# Env var mapping: model prefix → required API key env var.
-_MODEL_API_KEY_MAP: dict[str, str] = {
-    "claude-": "ANTHROPIC_API_KEY",
-    "gpt-": "OPENAI_API_KEY",
-    "o1-": "OPENAI_API_KEY",
-    "o3": "OPENAI_API_KEY",
-    "gemini-": "GEMINI_API_KEY",
-    "deepseek/": "DEEPSEEK_API_KEY",
-    "deepseek-": "DEEPSEEK_API_KEY",
-    "moonshot/": "MOONSHOT_API_KEY",
-    "openrouter/": "OPENROUTER_API_KEY",
-}
+def _resolve_provider_for_model(model: str) -> str:
+    """Resolve the provider name for a model, handling LiteLLM prefixes.
+
+    LiteLLM uses ``provider/model`` format (e.g. ``deepseek/deepseek-chat``),
+    which differs from the orchestrator convention where ``/`` means OpenRouter.
+    This function checks whether the prefix before the first ``/`` is a known
+    provider and uses it directly; otherwise falls back to
+    ``derive_provider_from_model``.
+
+    Args:
+        model: Model name, possibly with LiteLLM ``provider/`` prefix.
+
+    Returns:
+        Provider name string (e.g. ``"deepseek"``, ``"openrouter"``).
+    """
+    if "/" in model:
+        prefix = model.split("/", 1)[0].lower()
+        if prefix in PROVIDERS:
+            return prefix
+    return derive_provider_from_model(model)
 
 
 class AiderAdapter:
@@ -81,13 +90,13 @@ class AiderAdapter:
 
         env_overrides: dict[str, str] = {**task.env_vars}
 
-        # Inject the right API key based on model prefix
-        for prefix, env_key in _MODEL_API_KEY_MAP.items():
-            if model.lower().startswith(prefix):
-                key_value = _get_env(env_key)
-                if key_value:
-                    env_overrides[env_key] = key_value
-                break
+        # Inject the right API key from provider config
+        provider_name = _resolve_provider_for_model(model)
+        provider_config = get_provider_config(provider_name)
+        if provider_config.api_key_env:
+            key_value = _get_env(provider_config.api_key_env)
+            if key_value:
+                env_overrides[provider_config.api_key_env] = key_value
 
         workspace = task.workspace_path if hasattr(task, "workspace_path") else None
         if workspace is None:
