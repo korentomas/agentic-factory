@@ -174,7 +174,7 @@ jobs:
             Ticket title: ${{ github.event.client_payload.title }}
             Ticket description:
             ${{ github.event.client_payload.description }}
-          claude_args: "--max-turns 10 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }}"
+          claude_args: "--max-turns 10 --model ${{ vars.CLAUDE_OPUS_MODEL || 'claude-opus-4-6' }} --allowedTools 'Read,Write,Edit,Bash,Glob,Grep'"
 
       - name: Capture plan costs
         if: ${{ github.event.client_payload.complexity == 'high' }}
