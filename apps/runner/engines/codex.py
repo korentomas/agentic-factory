@@ -42,7 +42,8 @@ class CodexAdapter:
     ``npm i -g @openai/codex``).
 
     Environment:
-        OPENAI_API_KEY: Required. OpenAI API key.
+        OPENAI_API_KEY:  Required. OpenAI API key (or OpenRouter key).
+        OPENAI_BASE_URL: Optional. Override for OpenRouter or compatible endpoint.
     """
 
     @property
@@ -71,6 +72,7 @@ class CodexAdapter:
         cmd: list[str] = [
             "codex",
             "--quiet",
+            "--full-auto",
             "--model", model,
             "--message", task.description,
         ]
@@ -79,6 +81,9 @@ class CodexAdapter:
         api_key = _get_env("OPENAI_API_KEY")
         if api_key:
             env_overrides["OPENAI_API_KEY"] = api_key
+        base_url = _get_env("OPENAI_BASE_URL")
+        if base_url:
+            env_overrides["OPENAI_BASE_URL"] = base_url
 
         workspace = task.workspace_path if hasattr(task, "workspace_path") else None
         if workspace is None:

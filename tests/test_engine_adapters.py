@@ -16,6 +16,7 @@ import pytest
 
 from apps.runner.engines.aider import AiderAdapter
 from apps.runner.engines.claude_code import ClaudeCodeAdapter
+from apps.runner.engines.codex import CodexAdapter
 from apps.runner.engines.gemini_cli import GeminiCliAdapter
 from apps.runner.engines.subprocess_util import SubprocessResult
 from apps.runner.models import RunnerTask
@@ -1407,3 +1408,210 @@ class TestGeminiSandboxWiring:
         assert cmd[0] == "docker"
         assert "run" in cmd
         assert "lailatov/sandbox:python" in cmd
+
+# ── CodexAdapter tests ──────────────────────────────────────────────────────
+
+_CODEX_SUBPROCESS = "apps.runner.engines.codex.run_engine_subprocess"
+
+
+class TestCodexEnvOverrides:
+    """CodexAdapter: environment variable injection for OpenAI and OpenRouter."""
+
+    @pytest.mark.asyncio
+    async def test_codex_injects_openai_api_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify OPENAI_API_KEY is injected into env_overrides."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await CodexAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["OPENAI_API_KEY"] == "sk-test-key"
+
+    @pytest.mark.asyncio
+    async def test_codex_injects_openai_base_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify OPENAI_BASE_URL is injected when set (OpenRouter support)."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-or-test")
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await CodexAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["OPENAI_BASE_URL"] == "https://openrouter.ai/api/v1"
+
+    @pytest.mark.asyncio
+    async def test_codex_no_base_url_omits_from_overrides(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When OPENAI_BASE_URL is unset, it is not injected."""
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await CodexAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert "OPENAI_BASE_URL" not in env_overrides
+
+    @pytest.mark.asyncio
+    async def test_codex_no_api_key_omits_from_overrides(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When OPENAI_API_KEY is unset, it is not injected."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await CodexAdapter().run(_make_task())
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert "OPENAI_API_KEY" not in env_overrides
+
+    @pytest.mark.asyncio
+    async def test_codex_task_env_vars_are_merged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Task-level env_vars are included alongside injected API keys."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-abc")
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+        task = _make_task(env_vars={"CUSTOM_VAR": "custom-value"})
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await CodexAdapter().run(task)
+
+        env_overrides = mock_run.call_args.kwargs["env_overrides"]
+        assert env_overrides["CUSTOM_VAR"] == "custom-value"
+        assert env_overrides["OPENAI_API_KEY"] == "sk-openai-abc"
+
+
+class TestCodexCommandBuilding:
+    """CodexAdapter: verify the constructed CLI command."""
+
+    @pytest.mark.asyncio
+    async def test_codex_includes_quiet_flag(self) -> None:
+        """Command includes --quiet for non-interactive output."""
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await CodexAdapter().run(_make_task())
+
+        cmd = mock_run.call_args.args[0]
+        assert "--quiet" in cmd
+
+    @pytest.mark.asyncio
+    async def test_codex_includes_full_auto_flag(self) -> None:
+        """Command includes --full-auto for headless execution."""
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await CodexAdapter().run(_make_task())
+
+        cmd = mock_run.call_args.args[0]
+        assert "--full-auto" in cmd
+
+    @pytest.mark.asyncio
+    async def test_codex_uses_task_model(self) -> None:
+        """Task model is passed as --model argument."""
+        task = _make_task(model="o3-mini")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            result = await CodexAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        model_idx = cmd.index("--model") + 1
+        assert cmd[model_idx] == "o3-mini"
+        assert result.model == "o3-mini"
+
+    @pytest.mark.asyncio
+    async def test_codex_default_model_when_none(self) -> None:
+        """No model on task defaults to gpt-4.1."""
+        task = _make_task(model=None)
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            result = await CodexAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        model_idx = cmd.index("--model") + 1
+        assert cmd[model_idx] == "gpt-4.1"
+        assert result.model == "gpt-4.1"
+
+    @pytest.mark.asyncio
+    async def test_codex_passes_description_as_message(self) -> None:
+        """Task description is passed via --message argument."""
+        task = _make_task(description="Refactor the auth module")
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await CodexAdapter().run(task)
+
+        cmd = mock_run.call_args.args[0]
+        msg_idx = cmd.index("--message") + 1
+        assert cmd[msg_idx] == "Refactor the auth module"
+
+    @pytest.mark.asyncio
+    async def test_codex_passes_workspace_as_cwd(self) -> None:
+        """Workspace path is passed as cwd to subprocess."""
+        mock_result = _subprocess_ok(stdout="Done!")
+
+        with patch(
+            _CODEX_SUBPROCESS,
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_run:
+            await CodexAdapter().run(_make_task())
+
+        assert mock_run.call_args.kwargs["cwd"] == Path("/tmp/fake-workspace")
+
