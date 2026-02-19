@@ -1,19 +1,20 @@
 <p align="center">
-  <h1 align="center">AgentFactory</h1>
+  <h1 align="center">LailaTov</h1>
   <p align="center">
-    <strong>Tag a ticket. Get a PR.</strong>
+    <strong>Your codebase, working while you sleep.</strong>
   </p>
   <p align="center">
     <a href="https://github.com/korentomas/agentic-factory/actions"><img src="https://github.com/korentomas/agentic-factory/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
     <a href="https://github.com/korentomas/agentic-factory/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
     <img src="https://img.shields.io/badge/python-3.12+-3776AB.svg?logo=python&logoColor=white" alt="Python 3.12+">
+    <img src="https://img.shields.io/badge/next.js-15-black.svg?logo=next.js" alt="Next.js 15">
     <img src="https://img.shields.io/badge/Claude_Code-powered-cc785c.svg" alt="Claude Code">
   </p>
 </p>
 
-AgentFactory turns GitHub Issues and ClickUp tickets into reviewed, tested pull requests. Add the `ai-agent` label to an issue, and it figures out what to build, writes the code, opens a draft PR, runs the test suite, reviews its own work, fixes anything the review flags, and marks it ready. No human writes code. A human still reviews and merges.
+LailaTov ("good night" in Hebrew) is an autonomous code factory. Tag a GitHub issue, and it triages, writes code, opens a PR, reviews its own work, and fixes what the review flags. No human writes code. A human still reviews and merges.
 
-It also keeps a log of every run and uses that data to get better at your codebase over time.
+It ships with a **web dashboard** (Next.js 15) for real-time task execution, an **agent runner** (FastAPI) with Docker sandbox isolation, and a **multi-engine architecture** supporting Claude Code, Codex, Aider, and any LiteLLM-compatible model.
 
 ---
 
@@ -159,39 +160,102 @@ See [docs/providers.md](docs/providers.md) for Bedrock, Vertex, and custom gatew
 
 ```
 agentic-factory/
-├── apps/orchestrator/              # FastAPI service (Cloud Run)
-│   ├── main.py                     # Webhook ingress, request ID middleware
-│   ├── models.py                   # AgentTask — parse at the boundary
-│   ├── routers/
-│   │   ├── clickup.py              # HMAC-verified ClickUp webhook
-│   │   └── callbacks.py            # GitHub Actions result callbacks
-│   └── jobs/
-│       ├── codebase_scan.py        # Weekly autonomous codebase audit
-│       ├── weekly_summary.py       # Monday Slack digest
-│       └── pattern_extraction.py   # Extract patterns from outcomes
-├── .github/workflows/              # The pipeline — copy to your repo
-│   ├── agent-triage.yml            # Issue triage → clarify or dispatch
-│   ├── agent-write.yml             # Claude writes code → draft PR
-│   ├── agent-review.yml            # Risk gate + review + spec audit
-│   ├── agent-remediation.yml       # Auto-fix loop (max 2 rounds)
-│   └── pattern-extraction.yml      # Weekly pattern extraction → rules PR
+├── apps/
+│   ├── orchestrator/               # FastAPI service (Cloud Run)
+│   │   ├── main.py                 # Webhook ingress, request ID middleware
+│   │   ├── models.py               # AgentTask — parse at the boundary
+│   │   ├── providers.py            # Multi-engine provider config
+│   │   ├── routers/
+│   │   │   ├── clickup.py          # HMAC-verified ClickUp webhook
+│   │   │   └── callbacks.py        # GitHub Actions result callbacks
+│   │   └── jobs/
+│   │       ├── codebase_scan.py    # Weekly autonomous codebase audit
+│   │       ├── weekly_summary.py   # Monday Slack digest
+│   │       └── pattern_extraction.py
+│   └── runner/                     # Agent execution service
+│       ├── main.py                 # FastAPI — POST /tasks, GET /tasks/{id}
+│       ├── engines/                # Multi-engine adapters
+│       │   ├── protocol.py         # AgentEngine protocol
+│       │   ├── claude_code.py      # Claude Code adapter
+│       │   ├── aider.py            # Aider adapter (LiteLLM fallback)
+│       │   ├── registry.py         # Engine selection logic
+│       │   └── subprocess_util.py  # Cancel-aware subprocess runner
+│       ├── sandbox.py              # Docker container isolation
+│       ├── circuit_breaker.py      # Per-engine circuit breaker
+│       ├── budget.py               # Per-task cost ceiling
+│       ├── audit.py                # NDJSON event trail
+│       ├── watchdog.py             # Overtime + zombie task detection
+│       ├── github_tokens.py        # Short-lived GitHub App tokens
+│       ├── litellm_proxy.py        # Unified model routing
+│       ├── benchmark.py            # SWE-bench evaluation harness
+│       ├── middleware.py            # Bearer token auth
+│       └── workspace.py            # Git clone → branch → commit → push
+├── web/                            # Next.js 15 dashboard
+│   └── src/
+│       ├── app/
+│       │   ├── dashboard/          # Analytics dashboard
+│       │   │   └── tasks/          # Open SWE-style task execution
+│       │   │       └── [threadId]/ # Real-time streaming view
+│       │   └── api/
+│       │       ├── tasks/          # Task CRUD + SSE streaming
+│       │       ├── chat/           # AI codebase assistant
+│       │       └── stripe/         # Payments
+│       ├── components/
+│       │   ├── dashboard/          # Stats, PR table, engines, learning
+│       │   └── tasks/              # Terminal input, progress bar, manager chat
+│       └── lib/
+│           ├── db/                 # Drizzle ORM + Postgres
+│           ├── tasks/              # Task execution types
+│           └── auth.ts             # NextAuth v5 + GitHub OAuth
+├── .github/
+│   ├── workflows/                  # The pipeline — copy to your repo
+│   │   ├── agent-triage.yml
+│   │   ├── agent-write.yml
+│   │   ├── agent-review.yml
+│   │   └── agent-remediation.yml
+│   └── actions/run-agent/          # Multi-engine composite action
 ├── .claude/
-│   ├── settings.json               # Hook configuration
 │   ├── hooks/                      # Hard gates (safety, linting, tests)
 │   └── rules/                      # Learned patterns (auto-generated)
-│       ├── patterns.md             # What works well
-│       └── anti-patterns.md        # Common mistakes to avoid
 ├── data/
 │   └── agent-outcomes.jsonl        # Append-only log of every pipeline run
-├── scripts/
-│   ├── risk_policy_gate.py         # Determines risk tier from changed files
-│   └── extract_patterns.py         # CLI wrapper for pattern extraction
-├── risk-policy.json                # Risk tier rules — edit for your repo
-├── ARCHITECTURE.md                 # Template — customize for your codebase
-└── CLAUDE.md                       # Template — customize with your patterns
+└── risk-policy.json                # Risk tier rules — edit for your repo
 ```
 
-The orchestrator is stateless. GitHub Actions is the source of truth for what happened. The orchestrator just receives events, routes them, and sends notifications.
+The system has three layers: the **orchestrator** receives events and routes them, the **runner** executes agent tasks in sandboxed containers, and the **web dashboard** gives you real-time visibility into what the agents are doing.
+
+---
+
+## Task Execution UI
+
+The web dashboard includes an **Open SWE-style task execution interface** (modeled after [langchain-ai/open-swe](https://github.com/langchain-ai/open-swe)):
+
+- **Terminal input** — describe what you want built, select repo and branch
+- **Real-time streaming** — SSE-powered view of agent execution with tool call rendering
+- **Task progress bar** — segmented visualization of plan steps (completed/current/pending)
+- **Manager chat** — interrupt and guide the agent mid-execution
+- **Thread management** — list, revisit, and compare past task executions
+
+Routes: `/dashboard/tasks` (thread list) and `/dashboard/tasks/[threadId]` (execution view).
+
+---
+
+## Agent Runner
+
+The runner service (`apps/runner/`) executes coding agents as isolated subprocesses with production-grade safety:
+
+| Feature | Description |
+|---------|-------------|
+| **Docker sandbox** | Each task runs in an isolated container with network allowlisting |
+| **Circuit breaker** | Per-engine closed/open/half-open state machine prevents cascading failures |
+| **Cost budget** | Per-task spending ceiling with automatic enforcement |
+| **Task watchdog** | Background monitor detects overtime and zombie tasks |
+| **GitHub App tokens** | Short-lived RS256 installation tokens, auto-refreshed |
+| **Audit trail** | NDJSON-persistent event log for every lifecycle stage |
+| **LiteLLM proxy** | Unified model routing with aliases and fallback chains |
+| **Cancel support** | Graceful SIGTERM with 5-second SIGKILL escalation |
+
+Multi-engine support: Claude Code, Aider (with any LiteLLM-compatible model), and extensible via the `AgentEngine` protocol.
 
 ---
 
@@ -277,13 +341,13 @@ Probably the fastest way to see what it actually does.
 
 ## Contributing
 
-PRs welcome. ~3,100 lines of Python, 575 tests, 92% coverage.
+PRs welcome. **987 backend tests** (96% coverage) + **266 frontend tests** across the monorepo.
 
 Some things that would be useful:
 - Webhook providers beyond ClickUp (Linear, Jira, Shortcut)
 - Hook examples for Django, Rails, Express
-- Neon Database branching for per-run Postgres isolation
-- E2B sandbox integration for higher-isolation runs
+- SWE-bench evaluation runs against the benchmark harness
+- Additional engine adapters (Cursor, Windsurf, SWE-agent)
 - MCP server integrations for database schema introspection
 
 ---
