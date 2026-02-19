@@ -41,5 +41,22 @@ export async function POST(
     content: content.trim(),
   });
 
+  // If content is "cancel", forward to Runner
+  if (content.trim().toLowerCase() === "cancel") {
+    const runnerUrl = process.env.RUNNER_API_URL;
+    if (runnerUrl) {
+      try {
+        await fetch(`${runnerUrl}/tasks/${id}/cancel`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.RUNNER_API_KEY || ""}`,
+          },
+        });
+      } catch {
+        // Runner cancel is best-effort
+      }
+    }
+  }
+
   return NextResponse.json({ messageId: message.id }, { status: 201 });
 }
