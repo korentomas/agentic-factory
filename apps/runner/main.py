@@ -26,6 +26,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from apps.runner.audit import AuditLog
+from apps.runner.budget import BudgetExceededError, BudgetTracker
+from apps.runner.circuit_breaker import CircuitBreaker, CircuitOpenError
 from apps.runner.engines.registry import select_engine
 from apps.runner.middleware import APIKeyMiddleware
 from apps.runner.models import RunnerResult, RunnerTask, TaskState, TaskStatus
@@ -51,6 +53,21 @@ _tasks: dict[str, TaskState] = {}
 
 # ── Audit log ────────────────────────────────────────────────────────────────
 audit_log = AuditLog()
+
+# ── Circuit breakers (per-engine) ────────────────────────────────────────────
+_breakers: dict[str, CircuitBreaker] = {}
+
+
+def get_breaker(engine_name: str) -> CircuitBreaker:
+    """Get or create a circuit breaker for an engine."""
+    if engine_name not in _breakers:
+        _breakers[engine_name] = CircuitBreaker(name=engine_name)
+    return _breakers[engine_name]
+
+
+def reset_breakers() -> None:
+    """Reset all circuit breakers. Used in tests."""
+    _breakers.clear()
 
 
 # ── Pydantic request/response models ────────────────────────────────────────
@@ -120,6 +137,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 state._async_task.cancel()
     _tasks.clear()
     audit_log.clear()
+    reset_breakers()
     logger.info("runner.shutdown")
 
 
@@ -256,9 +274,14 @@ async def cancel_task(task_id: str) -> dict[str, str]:
 
 
 async def _execute_task(state: TaskState, github_token: str | None = None) -> None:
-    """Execute a task end-to-end: workspace → engine → commit → push."""
+    """Execute a task end-to-end: workspace → engine → commit → push.
+
+    Integrates circuit breaker, budget enforcement, cancel_event,
+    and audit trail at each lifecycle stage.
+    """
     task = state.task
     log = logger.bind(task_id=task.task_id)
+    budget = BudgetTracker(max_cost_usd=task.max_cost_usd)
 
     try:
         # 1. Create workspace
@@ -274,11 +297,16 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
         )
         state.workspace_path = repo_path
 
-        # 2. Select and run engine
+        # 2. Select engine and check circuit breaker
         engine = select_engine(
             model=task.model,
             preferred_engine=task.engine,
         )
+        breaker = get_breaker(engine.name)
+
+        if not breaker.allow_request():
+            raise CircuitOpenError(engine.name, breaker.recovery_timeout)
+
         audit_log.record(
             "task.engine_selected",
             task_id=task.task_id,
@@ -290,9 +318,21 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
         # (RunnerTask is frozen, so we use object.__setattr__)
         object.__setattr__(task, "workspace_path", repo_path)
 
-        result = await engine.run(task)
+        # 3. Run engine with cancel_event
+        result = await engine.run(task, cancel_event=state.cancel_event)
 
-        # 3. Commit and push if successful
+        # 4. Record cost and check budget
+        if result.cost_usd > 0:
+            budget.record_cost(result.cost_usd)
+            budget.check()
+
+        # 5. Update circuit breaker
+        if result.status == "success":
+            breaker.record_success()
+        elif result.status == "failure":
+            breaker.record_failure()
+
+        # 6. Commit and push if successful
         if result.status == "success":
             state.status = TaskStatus.COMMITTING
             log.info("task.committing")
@@ -352,6 +392,39 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
             error_message="Task was cancelled",
         )
         audit_log.record("task.cancelled", task_id=task.task_id)
+
+    except CircuitOpenError as exc:
+        log.warning("task.circuit_open", engine=exc.engine, retry_after=exc.retry_after)
+        state.status = TaskStatus.FAILED
+        state.result = RunnerResult(
+            task_id=task.task_id,
+            status="failure",
+            engine=exc.engine,
+            model=task.model or "unknown",
+            error_message=str(exc),
+        )
+        audit_log.record(
+            "task.circuit_open",
+            task_id=task.task_id,
+            engine=exc.engine,
+        )
+
+    except BudgetExceededError as exc:
+        log.warning("task.budget_exceeded", spent=exc.spent, limit=exc.limit)
+        state.status = TaskStatus.FAILED
+        state.result = RunnerResult(
+            task_id=task.task_id,
+            status="failure",
+            engine=task.engine or "unknown",
+            model=task.model or "unknown",
+            error_message=str(exc),
+        )
+        audit_log.record(
+            "task.budget_exceeded",
+            task_id=task.task_id,
+            spent=exc.spent,
+            limit=exc.limit,
+        )
 
     except Exception as exc:
         log.error("task.failed", error=str(exc))

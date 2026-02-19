@@ -2,7 +2,7 @@
 Shared subprocess utilities for engine adapters.
 
 Handles async subprocess execution with timeout, output capture,
-and structured error reporting.
+cancellation support, and structured error reporting.
 
 Security note: Uses asyncio.create_subprocess_exec (not shell=True).
 Arguments are passed as a list, preventing shell injection.
@@ -23,6 +23,9 @@ logger = structlog.get_logger()
 # Maximum chars to keep from stdout/stderr tails.
 OUTPUT_TAIL_LIMIT = 5000
 
+# Grace period before escalating SIGTERM to SIGKILL.
+_SIGTERM_GRACE_SECONDS = 5
+
 
 @dataclass(frozen=True)
 class SubprocessResult:
@@ -33,6 +36,12 @@ class SubprocessResult:
     stderr: str
     duration_ms: int
     timed_out: bool
+    cancelled: bool = False
+
+
+async def _wait_for_event(event: asyncio.Event) -> None:
+    """Wait until an event is set."""
+    await event.wait()
 
 
 async def run_engine_subprocess(
@@ -42,6 +51,7 @@ async def run_engine_subprocess(
     env_overrides: dict[str, str] | None = None,
     timeout_seconds: int = 3600,
     stdin_text: str | None = None,
+    cancel_event: asyncio.Event | None = None,
 ) -> SubprocessResult:
     """Run an engine CLI command as an async subprocess.
 
@@ -53,6 +63,8 @@ async def run_engine_subprocess(
         env_overrides:   Additional env vars to set (merged with current env).
         timeout_seconds: Hard timeout. Process is killed after this.
         stdin_text:      Optional text to pipe to stdin.
+        cancel_event:    If set, monitor this event for cancellation.
+                         SIGTERM is sent first, then SIGKILL after grace period.
 
     Returns:
         SubprocessResult with captured output and timing.
@@ -68,6 +80,7 @@ async def run_engine_subprocess(
 
     start_ms = _now_ms()
     timed_out = False
+    cancelled = False
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -79,17 +92,61 @@ async def run_engine_subprocess(
             stderr=asyncio.subprocess.PIPE,
         )
 
-        try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(input=stdin_text.encode() if stdin_text else None),
-                timeout=timeout_seconds,
+        if cancel_event is not None:
+            # Race between process completion, timeout, and cancellation
+            process_task = asyncio.create_task(
+                proc.communicate(input=stdin_text.encode() if stdin_text else None)
             )
-        except TimeoutError:
-            timed_out = True
-            proc.kill()
-            await proc.wait()
-            stdout_bytes = b""
-            stderr_bytes = b"Process killed: timeout exceeded"
+            cancel_task = asyncio.create_task(_wait_for_event(cancel_event))
+
+            done, pending = await asyncio.wait(
+                {process_task, cancel_task},
+                timeout=timeout_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            for t in pending:
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+
+            if cancel_task in done:
+                # Cancellation requested: SIGTERM then SIGKILL
+                cancelled = True
+                logger.info("engine.subprocess.cancelling", pid=proc.pid)
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=_SIGTERM_GRACE_SECONDS)
+                except TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                stdout_bytes = b""
+                stderr_bytes = b"Process cancelled"
+            elif process_task in done:
+                # Process completed normally
+                stdout_bytes, stderr_bytes = process_task.result()
+            else:
+                # Timeout (neither done)
+                timed_out = True
+                proc.kill()
+                await proc.wait()
+                stdout_bytes = b""
+                stderr_bytes = b"Process killed: timeout exceeded"
+        else:
+            # Original path (no cancellation support)
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(input=stdin_text.encode() if stdin_text else None),
+                    timeout=timeout_seconds,
+                )
+            except TimeoutError:
+                timed_out = True
+                proc.kill()
+                await proc.wait()
+                stdout_bytes = b""
+                stderr_bytes = b"Process killed: timeout exceeded"
 
     except FileNotFoundError:
         duration_ms = _now_ms() - start_ms
@@ -110,6 +167,7 @@ async def run_engine_subprocess(
         return_code=proc.returncode,
         duration_ms=duration_ms,
         timed_out=timed_out,
+        cancelled=cancelled,
         stdout_len=len(stdout),
         stderr_len=len(stderr),
     )
@@ -120,6 +178,7 @@ async def run_engine_subprocess(
         stderr=stderr,
         duration_ms=duration_ms,
         timed_out=timed_out,
+        cancelled=cancelled,
     )
 
 

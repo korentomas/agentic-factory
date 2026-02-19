@@ -7,6 +7,7 @@ to inherit from a base class. Just implement the interface.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Protocol, runtime_checkable
 
 from apps.runner.models import RunnerResult, RunnerTask
@@ -34,7 +35,12 @@ class AgentEngine(Protocol):
         """
         ...
 
-    async def run(self, task: RunnerTask) -> RunnerResult:
+    async def run(
+        self,
+        task: RunnerTask,
+        *,
+        cancel_event: asyncio.Event | None = None,
+    ) -> RunnerResult:
         """Execute the task in the engine and return structured results.
 
         The engine should:
@@ -42,9 +48,12 @@ class AgentEngine(Protocol):
         2. Run it as a subprocess in task.workspace_path
         3. Parse stdout/stderr into RunnerResult fields
         4. Respect task.timeout_seconds
+        5. Monitor cancel_event for early termination
 
         Args:
-            task: The task to execute.
+            task:         The task to execute.
+            cancel_event: If provided, the engine should pass this to
+                          run_engine_subprocess for graceful cancellation.
 
         Returns:
             RunnerResult with execution metadata.

@@ -7,18 +7,27 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from apps.runner.main import _execute_task, _tasks, app, audit_log
+from apps.runner.main import (
+    _execute_task,
+    _tasks,
+    app,
+    audit_log,
+    get_breaker,
+    reset_breakers,
+)
 from apps.runner.models import RunnerResult, RunnerTask, TaskState, TaskStatus
 
 
 @pytest.fixture(autouse=True)
 def _clear_tasks():
-    """Clear task store between tests."""
+    """Clear task store and breakers between tests."""
     _tasks.clear()
     audit_log.clear()
+    reset_breakers()
     yield
     _tasks.clear()
     audit_log.clear()
+    reset_breakers()
 
 
 client = TestClient(app)
@@ -257,15 +266,17 @@ class TestSubmitTask:
 class TestExecuteTask:
     """Tests for _execute_task background function."""
 
-    def _make_state(self, task_id="t1"):
-        task = RunnerTask(
-            task_id=task_id,
-            repo_url="https://github.com/org/repo",
-            branch="agent/t1",
-            base_branch="main",
-            title="Fix bug",
-            description="Fix the login bug",
-        )
+    def _make_state(self, task_id="t1", **task_kwargs):
+        defaults = {
+            "task_id": task_id,
+            "repo_url": "https://github.com/org/repo",
+            "branch": "agent/t1",
+            "base_branch": "main",
+            "title": "Fix bug",
+            "description": "Fix the login bug",
+        }
+        defaults.update(task_kwargs)
+        task = RunnerTask(**defaults)
         state = TaskState(task=task)
         _tasks[task_id] = state
         return state
@@ -321,6 +332,43 @@ class TestExecuteTask:
         assert state.result is not None
         assert state.result.commit_sha == "abc123"
         assert state.result.files_changed == ["src/fix.py"]
+
+    @pytest.mark.asyncio
+    async def test_execute_passes_cancel_event_to_engine(self):
+        """engine.run is called with cancel_event from TaskState."""
+        state = self._make_state("t-ce")
+        mock_engine = AsyncMock()
+        mock_engine.name = "claude-code"
+        mock_engine.run = AsyncMock(return_value=RunnerResult(
+            task_id="t-ce",
+            status="failure",
+            engine="claude-code",
+            model="claude-sonnet-4-6",
+            error_message="test",
+        ))
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        # Verify cancel_event was passed as keyword argument
+        mock_engine.run.assert_called_once()
+        call_kwargs = mock_engine.run.call_args.kwargs
+        assert "cancel_event" in call_kwargs
+        assert call_kwargs["cancel_event"] is state.cancel_event
 
     @pytest.mark.asyncio
     async def test_execute_records_audit_trail(self):
@@ -392,6 +440,110 @@ class TestExecuteTask:
         assert state.status == TaskStatus.FAILED
         assert state.result is not None
         assert state.result.error_message == "API key invalid"
+
+    @pytest.mark.asyncio
+    async def test_execute_engine_failure_records_circuit_breaker(self):
+        """Engine failure records a failure in the circuit breaker."""
+        state = self._make_state("t-cb")
+        mock_engine = AsyncMock()
+        mock_engine.name = "test-engine"
+        mock_engine.run = AsyncMock(return_value=RunnerResult(
+            task_id="t-cb",
+            status="failure",
+            engine="test-engine",
+            model="test-model",
+            error_message="fail",
+        ))
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        breaker = get_breaker("test-engine")
+        assert breaker._failure_count == 1
+
+    @pytest.mark.asyncio
+    async def test_execute_circuit_open_rejects_task(self):
+        """When circuit is open, task fails immediately."""
+        # Trip the circuit breaker
+        breaker = get_breaker("claude-code")
+        for _ in range(5):
+            breaker.record_failure()
+        assert breaker.state == "open"
+
+        state = self._make_state("t-open")
+        mock_engine = AsyncMock()
+        mock_engine.name = "claude-code"
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        assert state.status == TaskStatus.FAILED
+        assert "Circuit open" in state.result.error_message
+        mock_engine.run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_budget_exceeded(self):
+        """Task fails when cost exceeds max_cost_usd budget."""
+        state = self._make_state("t-budget", max_cost_usd=0.05)
+        mock_engine = AsyncMock()
+        mock_engine.name = "claude-code"
+        mock_engine.run = AsyncMock(return_value=RunnerResult(
+            task_id="t-budget",
+            status="success",
+            engine="claude-code",
+            model="claude-sonnet-4-6",
+            cost_usd=0.10,  # Exceeds 0.05 budget
+        ))
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        assert state.status == TaskStatus.FAILED
+        assert "budget exceeded" in state.result.error_message.lower()
+        events = audit_log.get_events("t-budget")
+        assert any(e.action == "task.budget_exceeded" for e in events)
 
     @pytest.mark.asyncio
     async def test_execute_workspace_creation_fails(self):
@@ -548,3 +700,57 @@ class TestExecuteTask:
         events = audit_log.get_events("t-fail-audit")
         actions = [e.action for e in events]
         assert "task.failed" in actions
+
+    @pytest.mark.asyncio
+    async def test_execute_success_records_circuit_breaker_success(self):
+        """Successful execution resets circuit breaker failure count."""
+        # Add a failure first
+        breaker = get_breaker("claude-code")
+        breaker.record_failure()
+        assert breaker._failure_count == 1
+
+        state = self._make_state("t-cb-ok")
+        mock_engine = AsyncMock()
+        mock_engine.name = "claude-code"
+        mock_engine.run = AsyncMock(return_value=RunnerResult(
+            task_id="t-cb-ok",
+            status="success",
+            engine="claude-code",
+            model="claude-sonnet-4-6",
+            cost_usd=0.05,
+        ))
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.commit_changes",
+                new_callable=AsyncMock,
+                return_value="sha",
+            ),
+            patch(
+                "apps.runner.main.push_changes",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "apps.runner.main.list_changed_files",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        assert breaker._failure_count == 0
+        assert breaker.state == "closed"

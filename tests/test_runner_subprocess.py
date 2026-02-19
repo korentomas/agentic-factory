@@ -1,5 +1,6 @@
 """Tests for apps.runner.engines.subprocess_util — async subprocess runner."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -42,6 +43,16 @@ class TestSubprocessResult:
         assert result.stderr == "err"
         assert result.duration_ms == 5000
         assert result.timed_out is True
+
+    def test_cancelled_default_false(self):
+        result = SubprocessResult(
+            return_code=0,
+            stdout="",
+            stderr="",
+            duration_ms=0,
+            timed_out=False,
+        )
+        assert result.cancelled is False
 
 
 # ── tail ─────────────────────────────────────────────────────────────────────
@@ -226,4 +237,86 @@ class TestRunEngineSubprocess:
                 cwd=tmp_path,
             )
 
+        assert result.return_code == 0
+
+    @pytest.mark.asyncio
+    async def test_cancel_event_terminates_process(self, tmp_path):
+        """When cancel_event is set, subprocess is terminated."""
+        cancel_event = asyncio.Event()
+
+        mock_proc = AsyncMock()
+        mock_proc.pid = 12345
+        mock_proc.terminate = MagicMock()
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+        mock_proc.returncode = -15  # SIGTERM
+
+        # communicate hangs forever (simulates a long-running process)
+        async def hang_forever(input=None):
+            await asyncio.sleep(999)
+            return (b"", b"")
+
+        mock_proc.communicate = hang_forever
+
+        async def set_cancel():
+            await asyncio.sleep(0.05)
+            cancel_event.set()
+
+        with patch(_SUBPROCESS_CREATE, return_value=mock_proc):
+            # Set cancel after a short delay
+            asyncio.create_task(set_cancel())
+            result = await run_engine_subprocess(
+                ["sleep", "999"],
+                cwd=tmp_path,
+                timeout_seconds=60,
+                cancel_event=cancel_event,
+            )
+
+        assert result.cancelled is True
+        assert "cancelled" in result.stderr.lower()
+        mock_proc.terminate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cancel_event_none_uses_original_path(self, tmp_path):
+        """Without cancel_event, the original code path is used."""
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"output", b""))
+        mock_proc.returncode = 0
+
+        with patch(_SUBPROCESS_CREATE, return_value=mock_proc):
+            result = await run_engine_subprocess(
+                ["echo"],
+                cwd=tmp_path,
+                cancel_event=None,
+            )
+
+        assert result.return_code == 0
+        assert result.cancelled is False
+        assert result.stdout == "output"
+
+    @pytest.mark.asyncio
+    async def test_cancel_event_process_completes_before_cancel(self, tmp_path):
+        """If process finishes before cancel_event, result is normal."""
+        cancel_event = asyncio.Event()
+
+        mock_proc = AsyncMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = 0
+
+        # communicate returns immediately
+        async def fast_complete(input=None):
+            return (b"done", b"")
+
+        mock_proc.communicate = fast_complete
+
+        with patch(_SUBPROCESS_CREATE, return_value=mock_proc):
+            result = await run_engine_subprocess(
+                ["echo"],
+                cwd=tmp_path,
+                timeout_seconds=60,
+                cancel_event=cancel_event,
+            )
+
+        assert result.cancelled is False
+        assert result.stdout == "done"
         assert result.return_code == 0

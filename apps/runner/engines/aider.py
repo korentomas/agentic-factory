@@ -7,6 +7,7 @@ meaning it can route to virtually any LLM provider.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 
@@ -55,7 +56,12 @@ class AiderAdapter:
     def supported_models(self) -> list[str]:
         return ["*"]  # Any LiteLLM-supported model
 
-    async def run(self, task: RunnerTask) -> RunnerResult:
+    async def run(
+        self,
+        task: RunnerTask,
+        *,
+        cancel_event: asyncio.Event | None = None,
+    ) -> RunnerResult:
         """Execute task via ``aider --yes-always --message``."""
         model = task.model or "claude-sonnet-4-6"
 
@@ -93,7 +99,19 @@ class AiderAdapter:
             cwd=workspace,
             env_overrides=env_overrides,
             timeout_seconds=task.timeout_seconds,
+            cancel_event=cancel_event,
         )
+
+        if result.cancelled:
+            return RunnerResult(
+                task_id=task.task_id,
+                status="cancelled",
+                engine=self.name,
+                model=model,
+                duration_ms=result.duration_ms,
+                stdout_tail=tail(result.stdout),
+                stderr_tail=tail(result.stderr),
+            )
 
         if result.timed_out:
             return RunnerResult(

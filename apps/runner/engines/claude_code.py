@@ -7,6 +7,7 @@ Parses JSON output for cost, turns, and duration metrics.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 
@@ -51,7 +52,12 @@ class ClaudeCodeAdapter:
     def supported_models(self) -> list[str]:
         return SUPPORTED_MODELS
 
-    async def run(self, task: RunnerTask) -> RunnerResult:
+    async def run(
+        self,
+        task: RunnerTask,
+        *,
+        cancel_event: asyncio.Event | None = None,
+    ) -> RunnerResult:
         """Execute task via ``claude --print --output-format json``."""
         model = task.model or DEFAULT_MODEL
 
@@ -88,7 +94,19 @@ class ClaudeCodeAdapter:
             env_overrides=env_overrides,
             timeout_seconds=task.timeout_seconds,
             stdin_text=task.description,
+            cancel_event=cancel_event,
         )
+
+        if result.cancelled:
+            return RunnerResult(
+                task_id=task.task_id,
+                status="cancelled",
+                engine=self.name,
+                model=model,
+                duration_ms=result.duration_ms,
+                stdout_tail=tail(result.stdout),
+                stderr_tail=tail(result.stderr),
+            )
 
         if result.timed_out:
             return RunnerResult(
