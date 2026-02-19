@@ -32,6 +32,7 @@ from apps.runner.circuit_breaker import CircuitBreaker, CircuitOpenError
 from apps.runner.engines.registry import select_engine
 from apps.runner.middleware import APIKeyMiddleware
 from apps.runner.models import RunnerResult, RunnerTask, TaskState, TaskStatus
+from apps.runner.watchdog import TaskWatchdog
 from apps.runner.workspace import (
     cleanup_workspace,
     commit_changes,
@@ -69,6 +70,10 @@ def get_breaker(engine_name: str) -> CircuitBreaker:
 def reset_breakers() -> None:
     """Reset all circuit breakers. Used in tests."""
     _breakers.clear()
+
+
+# ── Task watchdog ────────────────────────────────────────────────────────────
+_watchdog: TaskWatchdog | None = None
 
 
 # ── Pydantic request/response models ────────────────────────────────────────
@@ -127,8 +132,20 @@ class HealthResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup and shutdown lifecycle."""
+    global _watchdog  # noqa: PLW0603
     logger.info("runner.startup", version="0.1.0")
+
+    # Start the task watchdog
+    _watchdog = TaskWatchdog(tasks=_tasks, audit_log=audit_log)
+    await _watchdog.start()
+
     yield
+
+    # Stop the watchdog
+    if _watchdog is not None:
+        await _watchdog.stop()
+        _watchdog = None
+
     # Cleanup: cancel any running tasks
     for task_id, state in _tasks.items():
         if state.status == TaskStatus.RUNNING:
