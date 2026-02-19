@@ -6,10 +6,16 @@ import {
   chatSessions,
   repositories,
   subscriptions,
+  taskThreads,
+  taskMessages,
+  taskPlans,
   type OutcomeValue,
   type CheckStatus,
   type RiskTier,
   type SubscriptionStatus,
+  type TaskThreadStatus,
+  type TaskMessageRole,
+  type TaskPlanStepStatus,
 } from "@/lib/db/schema";
 import type {
   CheckHealth,
@@ -559,4 +565,164 @@ export async function saveChatMessage(data: {
     .where(eq(chatSessions.id, data.sessionId));
 
   return message;
+}
+
+/* ─────────────────────────────────────────────────────────
+ * Task threads
+ * ───────────────────────────────────────────────────────── */
+
+/** Inferred task thread row type. */
+export type TaskThreadRow = typeof taskThreads.$inferSelect;
+
+/** Inferred task message row type (execution messages, not chat). */
+export type TaskExecMessageRow = typeof taskMessages.$inferSelect;
+
+/** Inferred task plan row type. */
+export type TaskPlanRow = typeof taskPlans.$inferSelect;
+
+/** Create a new task thread. */
+export async function createTaskThread(data: {
+  userId: string;
+  repoUrl: string;
+  branch: string;
+  baseBranch?: string;
+  title: string;
+  description: string;
+  engine?: string;
+  model?: string;
+  riskTier?: RiskTier;
+}): Promise<TaskThreadRow> {
+  const [thread] = await db
+    .insert(taskThreads)
+    .values({
+      userId: data.userId,
+      repoUrl: data.repoUrl,
+      branch: data.branch,
+      baseBranch: data.baseBranch ?? "main",
+      title: data.title,
+      description: data.description,
+      engine: data.engine ?? null,
+      model: data.model ?? null,
+      riskTier: data.riskTier ?? "medium",
+    })
+    .returning();
+  return thread;
+}
+
+/** Fetch task threads for a user, sorted by createdAt descending. */
+export async function getTaskThreads(
+  userId: string,
+  limit: number = 50,
+): Promise<TaskThreadRow[]> {
+  return db
+    .select()
+    .from(taskThreads)
+    .where(eq(taskThreads.userId, userId))
+    .orderBy(desc(taskThreads.createdAt))
+    .limit(limit);
+}
+
+/** Fetch a single task thread by ID. */
+export async function getTaskThread(
+  threadId: string,
+): Promise<TaskThreadRow | null> {
+  const rows = await db
+    .select()
+    .from(taskThreads)
+    .where(eq(taskThreads.id, threadId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Update a task thread with partial fields. */
+export async function updateTaskThread(
+  threadId: string,
+  data: Partial<{
+    status: TaskThreadStatus;
+    engine: string;
+    model: string;
+    riskTier: RiskTier;
+    costUsd: string;
+    numTurns: number;
+    durationMs: number;
+    commitSha: string;
+    errorMessage: string;
+  }>,
+): Promise<TaskThreadRow> {
+  const [updated] = await db
+    .update(taskThreads)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(taskThreads.id, threadId))
+    .returning();
+  return updated;
+}
+
+/** Save a task execution message. */
+export async function saveTaskMessage(data: {
+  threadId: string;
+  role: TaskMessageRole;
+  content?: string;
+  toolName?: string;
+  toolInput?: string;
+  toolOutput?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<TaskExecMessageRow> {
+  const [message] = await db
+    .insert(taskMessages)
+    .values({
+      threadId: data.threadId,
+      role: data.role,
+      content: data.content ?? null,
+      toolName: data.toolName ?? null,
+      toolInput: data.toolInput ?? null,
+      toolOutput: data.toolOutput ?? null,
+      metadata: data.metadata ?? null,
+    })
+    .returning();
+  return message;
+}
+
+/** Fetch all messages for a task thread, ordered chronologically. */
+export async function getTaskMessages(
+  threadId: string,
+): Promise<TaskExecMessageRow[]> {
+  return db
+    .select()
+    .from(taskMessages)
+    .where(eq(taskMessages.threadId, threadId))
+    .orderBy(asc(taskMessages.createdAt));
+}
+
+/** Save a task execution plan. */
+export async function saveTaskPlan(data: {
+  threadId: string;
+  revision?: number;
+  steps: Array<{
+    title: string;
+    description: string;
+    status: TaskPlanStepStatus;
+  }>;
+  createdBy?: string;
+}): Promise<TaskPlanRow> {
+  const [plan] = await db
+    .insert(taskPlans)
+    .values({
+      threadId: data.threadId,
+      revision: data.revision ?? 1,
+      steps: data.steps,
+      createdBy: data.createdBy ?? "agent",
+    })
+    .returning();
+  return plan;
+}
+
+/** Fetch all plans for a task thread, ordered by revision ascending. */
+export async function getTaskPlans(
+  threadId: string,
+): Promise<TaskPlanRow[]> {
+  return db
+    .select()
+    .from(taskPlans)
+    .where(eq(taskPlans.threadId, threadId))
+    .orderBy(asc(taskPlans.revision));
 }
