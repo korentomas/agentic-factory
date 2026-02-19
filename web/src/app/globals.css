@@ -84,9 +84,41 @@
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Dark mode */
+/* Dark mode — explicit toggle */
+[data-theme="dark"] {
+  --color-bg: #1A2A2E;
+  --color-bg-secondary: #1F3236;
+  --color-bg-surface: #223A3E;
+  --color-bg-elevated: #2A454A;
+  --color-bg-warm: #253D42;
+
+  --color-text: #ECE2D0;
+  --color-text-secondary: #B8AFA2;
+  --color-text-muted: #7A8A8D;
+  --color-text-inverse: #27292B;
+
+  --color-border: #2E4A4F;
+  --color-border-strong: #3A5A60;
+
+  --color-accent: #5AADA3;
+  --color-accent-hover: #6BBDB3;
+  --color-accent-warm: #EB6101;
+  --color-accent-warm-hover: #F47B2A;
+
+  --color-success: #8DB255;
+  --color-warning: #D9A521;
+  --color-error: #E05A47;
+  --color-info: #86ABA5;
+  --color-sakura: #4A3233;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+
+/* Dark mode — system preference fallback */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-bg: #1A2A2E;
     --color-bg-secondary: #1F3236;
     --color-bg-surface: #223A3E;

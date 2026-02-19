@@ -76,7 +76,7 @@ export function Footer() {
 
         <div className="mt-[var(--space-12)] border-t border-[var(--color-border)] pt-[var(--space-8)]">
           <p className="text-[var(--text-xs)] text-[var(--color-text-muted)]">
-            LailaTov. A codebase that never sleeps.
+            &copy; {new Date().getFullYear()} LailaTov. A codebase that never sleeps.
           </p>
         </div>
       </div>

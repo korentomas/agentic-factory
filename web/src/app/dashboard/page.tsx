@@ -12,6 +12,7 @@ import { LearningPanel } from "@/components/dashboard/learning-panel";
 import { CodeRetentionPanel } from "@/components/dashboard/code-retention";
 import { FileHotspotsPanel } from "@/components/dashboard/file-hotspots";
 import { ConnectRepo } from "@/components/dashboard/connect-repo";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -47,6 +48,7 @@ export default async function Dashboard() {
           </Link>
 
           <div className="flex items-center gap-[var(--space-4)]">
+            <ThemeToggle />
             <span className="text-[var(--text-sm)] text-[var(--color-text-secondary)]">
               {user.name || user.email}
             </span>

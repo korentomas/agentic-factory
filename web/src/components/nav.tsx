@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { MobileMenu } from "./mobile-menu";
+import { ThemeToggle } from "./theme-toggle";
 
 export function Nav() {
   return (
@@ -11,7 +13,7 @@ export function Nav() {
           LailaTov
         </Link>
 
-        <div className="flex items-center gap-[var(--space-8)]">
+        <div className="hidden items-center gap-[var(--space-8)] md:flex">
           <Link
             href="#features"
             className="text-[var(--text-sm)] text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text)]"
@@ -30,6 +32,7 @@ export function Nav() {
           >
             Engines
           </Link>
+          <ThemeToggle />
           <Link
             href="/dashboard"
             className="rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-4)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
@@ -37,6 +40,7 @@ export function Nav() {
             Dashboard
           </Link>
         </div>
+        <MobileMenu />
       </div>
     </nav>
   );
