@@ -9,9 +9,11 @@ Usage::
 
     from apps.orchestrator.providers import (
         get_model_for_stage,
-        get_engine_for_stage,
+        get_ci_engine_for_stage,
+        get_runner_engine_for_stage,
         get_provider_config,
         derive_provider_from_model,
+        resolve_runner_engine,
         ModelTier,
         PipelineStage,
     )
@@ -110,8 +112,10 @@ class ProviderConfig:
         api_key_env:            Env var name holding the API key.
         models_by_tier:         Mapping of ModelTier to default model name.
         supports_cost_tracking: Whether the provider returns cost data in responses.
-        engine:                 GitHub Action engine for this provider
+        default_ci_engine:      GitHub Action engine for CI pipelines
                                 (claude-code, codex, or gemini-cli).
+        default_runner_engine:  Engine for the Agent Runner service
+                                (claude-code, codex, aider, or gemini-cli).
         api_key_env_name:       Env var name passed to non-Anthropic engines
                                 (e.g. OPENAI_API_KEY for codex).
     """
@@ -121,7 +125,8 @@ class ProviderConfig:
     api_key_env: str
     models_by_tier: dict[ModelTier, str]
     supports_cost_tracking: bool = True
-    engine: str = "claude-code"
+    default_ci_engine: str = "claude-code"
+    default_runner_engine: str = "claude-code"
     api_key_env_name: str = ""
 
 
@@ -181,7 +186,8 @@ PROVIDERS: dict[str, ProviderConfig] = {
             ModelTier.PREMIUM: "o3",
         },
         supports_cost_tracking=False,
-        engine="codex",
+        default_ci_engine="codex",
+        default_runner_engine="codex",
         api_key_env_name="OPENAI_API_KEY",
     ),
     "google": ProviderConfig(
@@ -194,7 +200,8 @@ PROVIDERS: dict[str, ProviderConfig] = {
             ModelTier.PREMIUM: "gemini-2.5-pro",
         },
         supports_cost_tracking=False,
-        engine="gemini-cli",
+        default_ci_engine="gemini-cli",
+        default_runner_engine="gemini-cli",
         api_key_env_name="GEMINI_API_KEY",
     ),
     "deepseek": ProviderConfig(
@@ -207,7 +214,8 @@ PROVIDERS: dict[str, ProviderConfig] = {
             ModelTier.PREMIUM: "deepseek-reasoner",
         },
         supports_cost_tracking=False,
-        engine="codex",
+        default_ci_engine="codex",
+        default_runner_engine="aider",
         api_key_env_name="DEEPSEEK_API_KEY",
     ),
     "qwen": ProviderConfig(
@@ -220,7 +228,8 @@ PROVIDERS: dict[str, ProviderConfig] = {
             ModelTier.PREMIUM: "qwen-max-latest",
         },
         supports_cost_tracking=False,
-        engine="codex",
+        default_ci_engine="codex",
+        default_runner_engine="aider",
         api_key_env_name="DASHSCOPE_API_KEY",
     ),
 }
@@ -299,16 +308,16 @@ def get_model_for_stage(
     return provider.models_by_tier[effective_tier]
 
 
-def get_engine_for_stage(
+def get_ci_engine_for_stage(
     stage: PipelineStage,
     provider_name: str | None = None,
 ) -> str:
-    """Return the engine name for a given stage and provider.
+    """Return the CI engine name for a given stage and provider.
 
     Resolution order:
 
     1. Stage-specific engine env var (e.g. ``WRITE_ENGINE``, ``TRIAGE_ENGINE``)
-    2. Provider's default engine
+    2. Provider's default CI engine
 
     Args:
         stage:         Pipeline stage.
@@ -322,7 +331,79 @@ def get_engine_for_stage(
     if engine_override:
         return engine_override
     provider = get_provider_config(provider_name)
-    return provider.engine
+    return provider.default_ci_engine
+
+
+# Backward compatibility alias — existing callers can keep using the old name.
+get_engine_for_stage = get_ci_engine_for_stage
+
+
+def get_runner_engine_for_stage(
+    stage: PipelineStage,
+    provider_name: str | None = None,
+) -> str:
+    """Return the Runner engine name for a given stage and provider.
+
+    Resolution order:
+
+    1. Stage-specific runner engine env var (e.g. ``WRITE_RUNNER_ENGINE``)
+    2. Provider's default runner engine
+
+    Args:
+        stage:         Pipeline stage.
+        provider_name: Optional provider override.
+
+    Returns:
+        Engine name string (``"claude-code"``, ``"codex"``, ``"aider"``,
+        or ``"gemini-cli"``).
+    """
+    stage_env_key = f"{stage.value.upper()}_RUNNER_ENGINE"
+    engine_override = _get_env(stage_env_key)
+    if engine_override:
+        return engine_override
+    provider = get_provider_config(provider_name)
+    return provider.default_runner_engine
+
+
+# ── Engine–model affinity ─────────────────────────────────────────────────────
+
+ENGINE_MODEL_AFFINITY: list[tuple[str, str]] = [
+    ("claude-", "claude-code"),
+    ("gpt-", "codex"),
+    ("o1-", "codex"),
+    ("o3", "codex"),
+    ("gemini-", "gemini-cli"),
+]
+
+
+def resolve_runner_engine(
+    model: str | None = None,
+    explicit_engine: str | None = None,
+) -> str:
+    """Resolve the best Runner engine for a model.
+
+    Resolution order:
+
+    1. Explicit engine override (caller already knows what they want).
+    2. Model-name prefix matching via ``ENGINE_MODEL_AFFINITY``.
+    3. Falls back to ``"aider"`` (universal LiteLLM-based fallback).
+
+    Args:
+        model:           Model name to match against affinity prefixes.
+        explicit_engine: If set, returned immediately (no inference).
+
+    Returns:
+        Engine name string (``"claude-code"``, ``"codex"``, ``"gemini-cli"``,
+        or ``"aider"``).
+    """
+    if explicit_engine:
+        return explicit_engine
+    if model:
+        lower = model.lower()
+        for prefix, engine in ENGINE_MODEL_AFFINITY:
+            if lower.startswith(prefix):
+                return engine
+    return "aider"
 
 
 def derive_provider_from_model(model_name: str) -> str:

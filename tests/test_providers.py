@@ -2,7 +2,8 @@
 Tests for the provider configuration module.
 
 Verifies model resolution logic, provider config lookup,
-tier escalation, engine support, and provider inference from model names.
+tier escalation, engine support, provider inference from model names,
+and engine-model affinity resolution.
 """
 
 from __future__ import annotations
@@ -11,18 +12,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.orchestrator.providers import (
+    ENGINE_MODEL_AFFINITY,
     PROVIDERS,
     RISK_TIER_ESCALATION,
     STAGE_DEFAULT_TIER,
     ModelTier,
     PipelineStage,
     derive_provider_from_model,
+    get_ci_engine_for_stage,
     get_engine_for_stage,
     get_model_for_stage,
     get_provider_config,
+    get_runner_engine_for_stage,
+    resolve_runner_engine,
 )
 
-# ── ProviderConfig ────────────────────────────────────────────────────────────
+# -- ProviderConfig -----------------------------------------------------------
 
 
 class TestProviderConfig:
@@ -45,11 +50,11 @@ class TestProviderConfig:
         assert PROVIDERS["anthropic"].supports_cost_tracking is True
 
     def test_openrouter_does_not_support_cost_tracking(self) -> None:
-        """OpenRouter returns cost: null — no cost tracking."""
+        """OpenRouter returns cost: null -- no cost tracking."""
         assert PROVIDERS["openrouter"].supports_cost_tracking is False
 
 
-# ── ModelTier ─────────────────────────────────────────────────────────────────
+# -- ModelTier ----------------------------------------------------------------
 
 
 class TestModelTier:
@@ -64,7 +69,7 @@ class TestModelTier:
         assert len(ModelTier) == 3
 
 
-# ── PipelineStage ─────────────────────────────────────────────────────────────
+# -- PipelineStage ------------------------------------------------------------
 
 
 class TestPipelineStage:
@@ -79,7 +84,7 @@ class TestPipelineStage:
         assert len(PipelineStage) == 7
 
 
-# ── get_provider_config ───────────────────────────────────────────────────────
+# -- get_provider_config ------------------------------------------------------
 
 
 class TestGetProviderConfig:
@@ -127,11 +132,11 @@ class TestGetProviderConfig:
                 )
 
 
-# ── get_model_for_stage ───────────────────────────────────────────────────────
+# -- get_model_for_stage ------------------------------------------------------
 
 
 class TestGetModelForStage:
-    """Model resolution logic — stage env var → legacy var → provider default."""
+    """Model resolution logic -- stage env var -> legacy var -> provider default."""
 
     def test_stage_env_var_takes_precedence(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """WRITE_MODEL env var overrides everything else."""
@@ -189,7 +194,7 @@ class TestGetModelForStage:
         assert model == "claude-sonnet-4-6"
 
     def test_medium_risk_no_escalation(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Medium-risk keeps default tier — no escalation."""
+        """Medium-risk keeps default tier -- no escalation."""
         monkeypatch.delenv("TRIAGE_MODEL", raising=False)
         monkeypatch.delenv("CLAUDE_SONNET_MODEL", raising=False)
         monkeypatch.delenv("AGENTFACTORY_PROVIDER", raising=False)
@@ -197,7 +202,7 @@ class TestGetModelForStage:
         assert model == "claude-haiku-4-5"
 
     def test_low_risk_no_escalation(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Low-risk keeps default tier — no escalation."""
+        """Low-risk keeps default tier -- no escalation."""
         monkeypatch.delenv("TRIAGE_MODEL", raising=False)
         monkeypatch.delenv("CLAUDE_SONNET_MODEL", raising=False)
         monkeypatch.delenv("AGENTFACTORY_PROVIDER", raising=False)
@@ -242,7 +247,7 @@ class TestGetModelForStage:
             assert len(model) > 0
 
 
-# ── derive_provider_from_model ────────────────────────────────────────────────
+# -- derive_provider_from_model -----------------------------------------------
 
 
 class TestDeriveProviderFromModel:
@@ -322,43 +327,81 @@ class TestDeriveProviderFromModel:
         assert derive_provider_from_model("google/gemini-2.5-flash") == "openrouter"
 
 
-# ── Engine support ────────────────────────────────────────────────────────────
+# -- Engine fields on ProviderConfig ------------------------------------------
 
 
-class TestProviderEngineField:
-    """Engine field on ProviderConfig."""
+class TestProviderEngineFields:
+    """CI and Runner engine fields on ProviderConfig."""
 
-    def test_all_providers_have_engine_field(self) -> None:
-        """Every provider has a non-empty engine field."""
+    def test_all_providers_have_ci_engine(self) -> None:
+        """Every provider has a non-empty default_ci_engine."""
         for name, config in PROVIDERS.items():
-            assert config.engine, f"Provider {name!r} has empty engine"
-            assert config.engine in ("claude-code", "codex", "gemini-cli"), (
-                f"Provider {name!r} has unknown engine {config.engine!r}"
+            assert config.default_ci_engine, (
+                f"Provider {name!r} has empty default_ci_engine"
+            )
+            assert config.default_ci_engine in ("claude-code", "codex", "gemini-cli"), (
+                f"Provider {name!r} has unknown CI engine {config.default_ci_engine!r}"
             )
 
-    def test_anthropic_engine_is_claude_code(self) -> None:
-        """Anthropic uses claude-code engine."""
-        assert PROVIDERS["anthropic"].engine == "claude-code"
+    def test_all_providers_have_runner_engine(self) -> None:
+        """Every provider has a non-empty default_runner_engine."""
+        valid_engines = ("claude-code", "codex", "gemini-cli", "aider")
+        for name, config in PROVIDERS.items():
+            assert config.default_runner_engine, (
+                f"Provider {name!r} has empty default_runner_engine"
+            )
+            assert config.default_runner_engine in valid_engines, (
+                f"Provider {name!r} has unknown runner engine "
+                f"{config.default_runner_engine!r}"
+            )
 
-    def test_openrouter_engine_is_claude_code(self) -> None:
-        """OpenRouter uses claude-code engine (Anthropic-compatible gateway)."""
-        assert PROVIDERS["openrouter"].engine == "claude-code"
+    def test_anthropic_ci_engine(self) -> None:
+        """Anthropic uses claude-code for CI."""
+        assert PROVIDERS["anthropic"].default_ci_engine == "claude-code"
 
-    def test_openai_engine_is_codex(self) -> None:
-        """OpenAI uses codex engine."""
-        assert PROVIDERS["openai"].engine == "codex"
+    def test_anthropic_runner_engine(self) -> None:
+        """Anthropic uses claude-code for Runner."""
+        assert PROVIDERS["anthropic"].default_runner_engine == "claude-code"
 
-    def test_google_engine_is_gemini_cli(self) -> None:
-        """Google AI uses gemini-cli engine."""
-        assert PROVIDERS["google"].engine == "gemini-cli"
+    def test_openrouter_ci_engine(self) -> None:
+        """OpenRouter uses claude-code for CI (Anthropic-compatible gateway)."""
+        assert PROVIDERS["openrouter"].default_ci_engine == "claude-code"
 
-    def test_deepseek_engine_is_codex(self) -> None:
-        """DeepSeek uses codex engine."""
-        assert PROVIDERS["deepseek"].engine == "codex"
+    def test_openrouter_runner_engine(self) -> None:
+        """OpenRouter uses claude-code for Runner."""
+        assert PROVIDERS["openrouter"].default_runner_engine == "claude-code"
 
-    def test_qwen_engine_is_codex(self) -> None:
-        """Qwen uses codex engine."""
-        assert PROVIDERS["qwen"].engine == "codex"
+    def test_openai_ci_engine(self) -> None:
+        """OpenAI uses codex for CI."""
+        assert PROVIDERS["openai"].default_ci_engine == "codex"
+
+    def test_openai_runner_engine(self) -> None:
+        """OpenAI uses codex for Runner."""
+        assert PROVIDERS["openai"].default_runner_engine == "codex"
+
+    def test_google_ci_engine(self) -> None:
+        """Google AI uses gemini-cli for CI."""
+        assert PROVIDERS["google"].default_ci_engine == "gemini-cli"
+
+    def test_google_runner_engine(self) -> None:
+        """Google AI uses gemini-cli for Runner."""
+        assert PROVIDERS["google"].default_runner_engine == "gemini-cli"
+
+    def test_deepseek_ci_engine(self) -> None:
+        """DeepSeek uses codex for CI."""
+        assert PROVIDERS["deepseek"].default_ci_engine == "codex"
+
+    def test_deepseek_runner_engine(self) -> None:
+        """DeepSeek uses aider for Runner (codex CLI lacks DeepSeek support)."""
+        assert PROVIDERS["deepseek"].default_runner_engine == "aider"
+
+    def test_qwen_ci_engine(self) -> None:
+        """Qwen uses codex for CI."""
+        assert PROVIDERS["qwen"].default_ci_engine == "codex"
+
+    def test_qwen_runner_engine(self) -> None:
+        """Qwen uses aider for Runner (codex CLI lacks Qwen support)."""
+        assert PROVIDERS["qwen"].default_runner_engine == "aider"
 
 
 class TestNewProviderConfigs:
@@ -397,28 +440,31 @@ class TestNewProviderConfigs:
             )
 
 
-class TestGetEngineForStage:
-    """Engine resolution per pipeline stage."""
+# -- get_ci_engine_for_stage --------------------------------------------------
 
-    def test_default_returns_provider_engine(
+
+class TestGetCiEngineForStage:
+    """CI engine resolution per pipeline stage."""
+
+    def test_default_returns_provider_ci_engine(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """With no env override, returns the provider's default engine."""
+        """With no env override, returns the provider's default CI engine."""
         monkeypatch.delenv("WRITE_ENGINE", raising=False)
         monkeypatch.delenv("AGENTFACTORY_PROVIDER", raising=False)
-        engine = get_engine_for_stage(PipelineStage.WRITE)
+        engine = get_ci_engine_for_stage(PipelineStage.WRITE)
         assert engine == "claude-code"
 
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """WRITE_ENGINE env var overrides provider default."""
         monkeypatch.setenv("WRITE_ENGINE", "codex")
-        engine = get_engine_for_stage(PipelineStage.WRITE)
+        engine = get_ci_engine_for_stage(PipelineStage.WRITE)
         assert engine == "codex"
 
     def test_triage_engine_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """TRIAGE_ENGINE env var works for triage stage."""
         monkeypatch.setenv("TRIAGE_ENGINE", "gemini-cli")
-        engine = get_engine_for_stage(PipelineStage.TRIAGE)
+        engine = get_ci_engine_for_stage(PipelineStage.TRIAGE)
         assert engine == "gemini-cli"
 
     def test_provider_openai_returns_codex(
@@ -426,7 +472,7 @@ class TestGetEngineForStage:
     ) -> None:
         """OpenAI provider returns codex engine by default."""
         monkeypatch.delenv("WRITE_ENGINE", raising=False)
-        engine = get_engine_for_stage(PipelineStage.WRITE, provider_name="openai")
+        engine = get_ci_engine_for_stage(PipelineStage.WRITE, provider_name="openai")
         assert engine == "codex"
 
     def test_provider_google_returns_gemini_cli(
@@ -434,26 +480,159 @@ class TestGetEngineForStage:
     ) -> None:
         """Google provider returns gemini-cli engine by default."""
         monkeypatch.delenv("REVIEW_ENGINE", raising=False)
-        engine = get_engine_for_stage(PipelineStage.REVIEW, provider_name="google")
+        engine = get_ci_engine_for_stage(PipelineStage.REVIEW, provider_name="google")
         assert engine == "gemini-cli"
 
     def test_env_override_beats_provider(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Stage env var takes precedence over provider's engine."""
+        """Stage env var takes precedence over provider's CI engine."""
         monkeypatch.setenv("WRITE_ENGINE", "gemini-cli")
-        engine = get_engine_for_stage(PipelineStage.WRITE, provider_name="openai")
+        engine = get_ci_engine_for_stage(PipelineStage.WRITE, provider_name="openai")
         assert engine == "gemini-cli"
 
+    def test_backward_compat_alias(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_engine_for_stage is a backward-compat alias for get_ci_engine_for_stage."""
+        monkeypatch.delenv("WRITE_ENGINE", raising=False)
+        monkeypatch.delenv("AGENTFACTORY_PROVIDER", raising=False)
+        assert get_engine_for_stage is get_ci_engine_for_stage
+        engine = get_engine_for_stage(PipelineStage.WRITE)
+        assert engine == "claude-code"
 
-# ── RISK_TIER_ESCALATION ──────────────────────────────────────────────────────
+
+# -- get_runner_engine_for_stage ----------------------------------------------
+
+
+class TestGetRunnerEngineForStage:
+    """Runner engine resolution per pipeline stage."""
+
+    def test_default_returns_provider_runner_engine(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no env override, returns the provider's default runner engine."""
+        monkeypatch.delenv("WRITE_RUNNER_ENGINE", raising=False)
+        monkeypatch.delenv("AGENTFACTORY_PROVIDER", raising=False)
+        engine = get_runner_engine_for_stage(PipelineStage.WRITE)
+        assert engine == "claude-code"
+
+    def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """WRITE_RUNNER_ENGINE env var overrides provider default."""
+        monkeypatch.setenv("WRITE_RUNNER_ENGINE", "aider")
+        engine = get_runner_engine_for_stage(PipelineStage.WRITE)
+        assert engine == "aider"
+
+    def test_triage_runner_engine_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """TRIAGE_RUNNER_ENGINE env var works for triage stage."""
+        monkeypatch.setenv("TRIAGE_RUNNER_ENGINE", "codex")
+        engine = get_runner_engine_for_stage(PipelineStage.TRIAGE)
+        assert engine == "codex"
+
+    def test_provider_deepseek_returns_aider(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DeepSeek provider returns aider runner engine by default."""
+        monkeypatch.delenv("WRITE_RUNNER_ENGINE", raising=False)
+        engine = get_runner_engine_for_stage(PipelineStage.WRITE, provider_name="deepseek")
+        assert engine == "aider"
+
+    def test_provider_openai_returns_codex(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """OpenAI provider returns codex runner engine by default."""
+        monkeypatch.delenv("WRITE_RUNNER_ENGINE", raising=False)
+        engine = get_runner_engine_for_stage(PipelineStage.WRITE, provider_name="openai")
+        assert engine == "codex"
+
+    def test_provider_google_returns_gemini_cli(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Google provider returns gemini-cli runner engine by default."""
+        monkeypatch.delenv("REVIEW_RUNNER_ENGINE", raising=False)
+        engine = get_runner_engine_for_stage(PipelineStage.REVIEW, provider_name="google")
+        assert engine == "gemini-cli"
+
+    def test_env_override_beats_provider(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stage env var takes precedence over provider's runner engine."""
+        monkeypatch.setenv("WRITE_RUNNER_ENGINE", "claude-code")
+        engine = get_runner_engine_for_stage(PipelineStage.WRITE, provider_name="deepseek")
+        assert engine == "claude-code"
+
+
+# -- resolve_runner_engine (ENGINE_MODEL_AFFINITY) ----------------------------
+
+
+class TestEngineModelAffinity:
+    """Engine-model affinity resolution via resolve_runner_engine."""
+
+    def test_explicit_engine_wins(self) -> None:
+        """Explicit engine argument overrides model-based inference."""
+        engine = resolve_runner_engine(model="claude-sonnet-4-6", explicit_engine="aider")
+        assert engine == "aider"
+
+    def test_claude_model_maps_to_claude_code(self) -> None:
+        """claude-* models resolve to claude-code engine."""
+        assert resolve_runner_engine(model="claude-sonnet-4-6") == "claude-code"
+        assert resolve_runner_engine(model="claude-haiku-4-5") == "claude-code"
+        assert resolve_runner_engine(model="claude-opus-4-6") == "claude-code"
+
+    def test_gpt_model_maps_to_codex(self) -> None:
+        """gpt-* models resolve to codex engine."""
+        assert resolve_runner_engine(model="gpt-4.1") == "codex"
+        assert resolve_runner_engine(model="gpt-4.1-mini") == "codex"
+
+    def test_o1_model_maps_to_codex(self) -> None:
+        """o1-* models resolve to codex engine."""
+        assert resolve_runner_engine(model="o1-preview") == "codex"
+
+    def test_o3_model_maps_to_codex(self) -> None:
+        """o3* models resolve to codex engine."""
+        assert resolve_runner_engine(model="o3") == "codex"
+        assert resolve_runner_engine(model="o3-mini") == "codex"
+
+    def test_gemini_model_maps_to_gemini_cli(self) -> None:
+        """gemini-* models resolve to gemini-cli engine."""
+        assert resolve_runner_engine(model="gemini-2.5-flash") == "gemini-cli"
+        assert resolve_runner_engine(model="gemini-2.5-pro") == "gemini-cli"
+
+    def test_unknown_model_falls_back_to_aider(self) -> None:
+        """Unknown model names fall back to aider (LiteLLM universal)."""
+        assert resolve_runner_engine(model="deepseek-chat") == "aider"
+        assert resolve_runner_engine(model="qwen-max-latest") == "aider"
+        assert resolve_runner_engine(model="llama-3.1-70b") == "aider"
+
+    def test_no_model_no_engine_falls_back_to_aider(self) -> None:
+        """With no model and no explicit engine, falls back to aider."""
+        assert resolve_runner_engine() == "aider"
+        assert resolve_runner_engine(model=None, explicit_engine=None) == "aider"
+
+    def test_case_insensitive_matching(self) -> None:
+        """Model name matching is case-insensitive."""
+        assert resolve_runner_engine(model="Claude-Sonnet-4-6") == "claude-code"
+        assert resolve_runner_engine(model="GPT-4.1") == "codex"
+        assert resolve_runner_engine(model="Gemini-2.5-Flash") == "gemini-cli"
+
+    def test_affinity_list_has_expected_entries(self) -> None:
+        """ENGINE_MODEL_AFFINITY contains the expected prefix-engine pairs."""
+        affinity_dict = dict(ENGINE_MODEL_AFFINITY)
+        assert affinity_dict["claude-"] == "claude-code"
+        assert affinity_dict["gpt-"] == "codex"
+        assert affinity_dict["o1-"] == "codex"
+        assert affinity_dict["o3"] == "codex"
+        assert affinity_dict["gemini-"] == "gemini-cli"
+
+
+# -- RISK_TIER_ESCALATION ----------------------------------------------------
 
 
 class TestRiskTierEscalation:
     """Risk tier escalation rules."""
 
     def test_high_risk_escalates_fast(self) -> None:
-        """High risk: FAST → STANDARD."""
+        """High risk: FAST -> STANDARD."""
         assert RISK_TIER_ESCALATION["high"][ModelTier.FAST] == ModelTier.STANDARD
 
     def test_high_risk_does_not_escalate_standard(self) -> None:
@@ -469,7 +648,7 @@ class TestRiskTierEscalation:
         assert len(RISK_TIER_ESCALATION["low"]) == 0
 
 
-# ── Metrics endpoint ──────────────────────────────────────────────────────────
+# -- Metrics endpoint ---------------------------------------------------------
 
 
 def test_metrics_exposes_model_invocations_total(client: TestClient) -> None:
