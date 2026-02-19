@@ -1,10 +1,32 @@
-# AgentFactory
+<p align="center">
+  <h1 align="center">AgentFactory</h1>
+  <p align="center">
+    <strong>Your tickets become pull requests. Automatically.</strong>
+  </p>
+  <p align="center">
+    <a href="https://github.com/korentomas/agentic-factory/actions"><img src="https://github.com/korentomas/agentic-factory/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+    <a href="https://github.com/korentomas/agentic-factory/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+    <img src="https://img.shields.io/badge/python-3.12+-3776AB.svg?logo=python&logoColor=white" alt="Python 3.12+">
+    <img src="https://img.shields.io/badge/Claude_Code-powered-cc785c.svg" alt="Claude Code">
+  </p>
+</p>
 
-**Your tickets become PRs. Automatically.**
+AgentFactory is an open-source autonomous code factory. Tag a GitHub Issue or ClickUp ticket with `ai-agent`, and it triages the request, writes the code, opens a draft PR, reviews it, remediates findings, and promotes it to ready — without a human writing a single line of code.
 
-AgentFactory is an open-source autonomous code factory that takes ClickUp tickets tagged `ai-agent` and turns them into reviewed, tested pull requests — without a human writing a single line of code. It's like CodeRabbit, but it *writes* the code, not just comments on it.
+It's like Copilot Workspace meets CodeRabbit, but fully autonomous and self-improving.
 
-Drop a ticket. Come back to a PR.
+---
+
+## Features
+
+- **Three-stage pipeline** — Triage (evaluate clarity, ask questions) &rarr; Execute (write code, open PR) &rarr; Review (risk gate, tests, spec audit)
+- **Self-improving** — Logs outcomes, extracts patterns weekly, learns from its own successes and failures
+- **Risk-tiered review** — File-path-based risk policy (high/medium/low) with configurable review gates
+- **Auto-remediation** — Automatically fixes review findings (up to 2 rounds, then escalates)
+- **Multi-provider** — Anthropic Direct, OpenRouter (DeepSeek, Gemini, Llama), AWS Bedrock, Google Vertex
+- **GitHub-native** — Works with just GitHub Actions + a GitHub App. No external services required
+- **Request tracing** — Every request tagged with a UUID, propagated through structured logs
+- **Cost tracking** — Per-PR cost, turn count, and duration displayed in every PR body
 
 ---
 
@@ -16,25 +38,27 @@ Drop a ticket. Come back to a PR.
               │
               ▼
   ┌─────────────────────────┐
-  │  agent-triage.yml       │  Claude Opus evaluates clarity.
-  │                         │  Clear → dispatch. Unclear → ask question.
-  └────────────┬────────────┘
-               │  Is the issue clear?
+  │     TRIAGE               │  Claude evaluates clarity.
+  │     agent-triage.yml     │  Clear → dispatch.
+  │                          │  Unclear → ask question, wait for reply.
+  └────────────┬─────────────┘
+               │
       ┌────────┴────────┐
       │                 │
    UNCLEAR            CLEAR
       │                 │
       ▼                 ▼
   Post question     ┌─────────────────────────┐
-  on issue,         │  agent-write.yml        │  Claude Sonnet writes
-  wait for          │                         │  code, creates draft PR
-  author reply      └────────────┬────────────┘
-                                 │  PR opened on branch agent/*
+  on issue,         │     WRITE               │  Claude writes code,
+  wait for reply,   │     agent-write.yml     │  runs tests, opens
+  then re-triage    │                         │  draft PR on agent/* branch
+                    └────────────┬────────────┘
+                                 │
                                  ▼
                     ┌─────────────────────────┐
-                    │  agent-review.yml       │  Risk gate → tests →
-                    │                         │  Claude Opus review +
-                    │                         │  spec audit + outcome log
+                    │     REVIEW              │  Risk gate → test suite →
+                    │     agent-review.yml    │  Claude review + spec audit
+                    │                         │  → outcome logged to JSONL
                     └────────────┬────────────┘
                                  │
                         ┌────────┴────────┐
@@ -42,83 +66,86 @@ Drop a ticket. Come back to a PR.
                      FINDINGS           CLEAN
                         │                 │
                         ▼                 ▼
-                    agent-            PR marked ready
-                    remediation       for review +
-                    .yml              outcome logged
+                    REMEDIATE         PR marked ready
+                    agent-            for review ✓
+                    remediation.yml
                     (max 2 rounds,
-                     then escalate)
+                     then Slack
+                     escalation)
 ```
 
 ---
 
 ## Quickstart
 
-**1. Clone and configure**
+### Option A: GitHub Issues (simplest)
+
+No orchestrator, no webhooks, no external services. Pure GitHub-native.
+
+**1. Clone and set up**
 
 ```bash
-git clone https://github.com/your-org/agent-factory
-cd agent-factory
-cp .env.example .env
-# Fill in: CLICKUP_WEBHOOK_SECRET, CLICKUP_API_TOKEN, SLACK_WEBHOOK_URL
+git clone https://github.com/korentomas/agentic-factory.git
+cd agentic-factory
 ```
 
 **2. Copy workflow files to your target repo**
 
 ```bash
 cp .github/workflows/*.yml /path/to/your-repo/.github/workflows/
-cp .claude/settings.json /path/to/your-repo/.claude/
-cp -r .claude/hooks/ /path/to/your-repo/.claude/
+cp -r .claude/ /path/to/your-repo/.claude/
 cp risk-policy.json /path/to/your-repo/
 cp ARCHITECTURE.md /path/to/your-repo/
 cp CLAUDE.md /path/to/your-repo/
 ```
 
-**3. Create a GitHub App and set secrets**
+**3. Create a GitHub App**
 
 Create a [GitHub App](https://docs.github.com/en/apps/creating-github-apps) with these permissions:
-- **Contents:** Read & Write
-- **Pull requests:** Read & Write
-- **Issues:** Read & Write
 
-Install it on your target repo, then set these GitHub Actions secrets:
+| Permission | Access |
+|-----------|--------|
+| Contents | Read & Write |
+| Pull requests | Read & Write |
+| Issues | Read & Write |
 
-```
-APP_ID               — Your GitHub App's ID (found in app settings)
-APP_PRIVATE_KEY      — The app's private key (.pem file contents)
-ANTHROPIC_API_KEY    — Anthropic API key (or OpenRouter key — see below)
-ORCHESTRATOR_URL     — (optional) URL of your deployed orchestrator
-CLICKUP_API_TOKEN    — (optional) ClickUp personal API token
-SLACK_WEBHOOK_URL    — (optional) Slack incoming webhook URL
-```
+Install it on your target repo, then add these **GitHub Actions secrets**:
 
-The workflows use `actions/create-github-app-token` to generate short-lived tokens at runtime. This is more secure than PATs — tokens expire after 1 hour and are scoped to the installation.
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `APP_ID` | Yes | Your GitHub App's ID |
+| `APP_PRIVATE_KEY` | Yes | The app's private key (`.pem` contents) |
+| `ANTHROPIC_API_KEY` | Yes | Anthropic API key (or OpenRouter key) |
+| `SLACK_WEBHOOK_URL` | No | Slack incoming webhook for escalation notifications |
 
-**Using OpenRouter instead of Anthropic?** Add one more secret:
-```
-CLAUDE_SETTINGS      — {"env":{"ANTHROPIC_BASE_URL":"https://openrouter.ai/api"}}
-```
-Then set `ANTHROPIC_API_KEY` to your OpenRouter key (`sk-or-v1-...`).
-This lets you use DeepSeek, Gemini, Qwen, Llama — any model on OpenRouter.
-See [docs/providers.md](docs/providers.md) for full provider configuration.
+> The workflows use [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) to generate short-lived tokens scoped to the installation. More secure than PATs.
 
-**4. Deploy the orchestrator**
+**4. Create an issue and add the `ai-agent` label**
+
+That's it. The pipeline handles everything from there.
+
+### Option B: ClickUp Integration
+
+Requires deploying the orchestrator service.
+
+**1. Deploy the orchestrator**
 
 ```bash
-# Using Cloud Run
+# Cloud Run
 gcloud run deploy agent-factory \
   --source . \
   --region us-central1 \
-  --set-env-vars-from-file .env
+  --set-env-vars CLICKUP_WEBHOOK_SECRET=...,CLICKUP_API_TOKEN=...,SLACK_WEBHOOK_URL=...
 
-# Or locally for testing
+# Or locally
 pip install -e .
 uvicorn apps.orchestrator.main:app --port 8080
 ```
 
-**5. Register the ClickUp webhook**
+**2. Register the ClickUp webhook**
 
 ```bash
-curl -X POST https://api.clickup.com/api/v2/team/YOUR_TEAM_ID/webhook \
+curl -X POST "https://api.clickup.com/api/v2/team/YOUR_TEAM_ID/webhook" \
   -H "Authorization: YOUR_CLICKUP_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -127,58 +154,61 @@ curl -X POST https://api.clickup.com/api/v2/team/YOUR_TEAM_ID/webhook \
   }'
 ```
 
-Now tag any ClickUp ticket with `ai-agent` and watch it become a PR.
+**3. Tag any ClickUp ticket with `ai-agent`**
 
-### Using GitHub Issues instead of ClickUp
+The orchestrator dispatches to the same GitHub Actions pipeline.
 
-No ClickUp? No orchestrator needed. Just use GitHub Issues:
+### Using OpenRouter or Other Providers
 
-1. Copy the workflow files to your repo (step 2 above)
-2. Set `APP_ID`, `APP_PRIVATE_KEY`, and `ANTHROPIC_API_KEY` in GitHub Actions secrets
-3. Create an issue and add the `ai-agent` label
+Add one more secret to use any model on OpenRouter:
 
-That's it. The `agent-triage.yml` workflow evaluates the issue, asks clarifying questions if needed, then dispatches through the same pipeline as ClickUp tickets. PRs auto-link back with `Closes #N`.
+```
+CLAUDE_SETTINGS = {"env":{"ANTHROPIC_BASE_URL":"https://openrouter.ai/api"}}
+```
 
-**No orchestrator, no webhooks, no external services.** Pure GitHub-native.
+Set `ANTHROPIC_API_KEY` to your OpenRouter key (`sk-or-v1-...`). This unlocks DeepSeek, Gemini, Qwen, Llama, and anything else on OpenRouter.
+
+See [docs/providers.md](docs/providers.md) for Bedrock, Vertex, and custom gateway configuration.
 
 ---
 
-## Architecture Overview
+## Architecture
 
 ```
-agent-factory/
-├── apps/orchestrator/       # FastAPI service (Cloud Run)
-│   ├── main.py              # Webhook ingress + routing
-│   ├── models.py            # AgentTask — parse-at-boundary
+agentic-factory/
+├── apps/orchestrator/              # FastAPI service (Cloud Run)
+│   ├── main.py                     # Webhook ingress, request ID middleware
+│   ├── models.py                   # AgentTask — parse at the boundary
 │   ├── routers/
-│   │   ├── clickup.py       # HMAC-verified ClickUp webhook
-│   │   └── callbacks.py     # GitHub Actions result callbacks
+│   │   ├── clickup.py              # HMAC-verified ClickUp webhook
+│   │   └── callbacks.py            # GitHub Actions result callbacks
 │   └── jobs/
-│       ├── codebase_scan.py       # Weekly autonomous codebase audit
-│       ├── weekly_summary.py      # Monday Slack digest
-│       └── pattern_extraction.py  # Extract patterns from outcomes
-├── .github/workflows/       # Copy these to your target repo
-│   ├── agent-triage.yml     # Issue triage → clarify or dispatch
-│   ├── agent-write.yml      # Claude writes code → draft PR
-│   ├── agent-review.yml     # Risk gate + review + spec audit + outcome log
-│   ├── agent-remediation.yml# Auto-fix loop (max 2 rounds)
-│   └── pattern-extraction.yml # Weekly pattern extraction → rules PR
+│       ├── codebase_scan.py        # Weekly autonomous codebase audit
+│       ├── weekly_summary.py       # Monday Slack digest
+│       └── pattern_extraction.py   # Extract patterns from outcomes
+├── .github/workflows/              # The pipeline — copy to your repo
+│   ├── agent-triage.yml            # Issue triage → clarify or dispatch
+│   ├── agent-write.yml             # Claude writes code → draft PR
+│   ├── agent-review.yml            # Risk gate + review + spec audit
+│   ├── agent-remediation.yml       # Auto-fix loop (max 2 rounds)
+│   └── pattern-extraction.yml      # Weekly pattern extraction → rules PR
+├── .claude/
+│   ├── settings.json               # Hook configuration
+│   ├── hooks/                      # Hard gates (safety, linting, tests)
+│   └── rules/                      # Learned patterns (auto-generated)
+│       ├── patterns.md             # What works well
+│       └── anti-patterns.md        # Common mistakes to avoid
 ├── data/
-│   └── agent-outcomes.jsonl # Structured log of every pipeline run
-├── .claude/                 # Copy to your target repo
-│   ├── settings.json        # Hook configuration
-│   ├── hooks/               # Bash hooks (safety, linting, tests)
-│   └── rules/               # Learned patterns (auto-generated, human-reviewed)
-│       ├── patterns.md      # What works well
-│       └── anti-patterns.md # Common mistakes to avoid
+│   └── agent-outcomes.jsonl        # Append-only log of every pipeline run
 ├── scripts/
-│   └── risk_policy_gate.py  # Determines risk tier from changed files
-├── risk-policy.json         # Risk tier rules — edit for your repo
-├── ARCHITECTURE.md          # Template — customize for your codebase
-└── CLAUDE.md                # Template — customize with your patterns
+│   ├── risk_policy_gate.py         # Determines risk tier from changed files
+│   └── extract_patterns.py         # CLI wrapper for pattern extraction
+├── risk-policy.json                # Risk tier rules — edit for your repo
+├── ARCHITECTURE.md                 # Template — customize for your codebase
+└── CLAUDE.md                       # Template — customize with your patterns
 ```
 
-The orchestrator is stateless. GitHub Actions is the source of truth for agent runs. The orchestrator's only job: receive events, route them, send notifications.
+The orchestrator is **stateless**. GitHub Actions is the source of truth. The orchestrator's only job: receive events, route them, send notifications.
 
 ---
 
@@ -203,93 +233,105 @@ Controls which file paths require which level of review:
 }
 ```
 
-High-tier PRs require passing tests AND Claude review. Low-tier only need the gate.
-
 ### CLAUDE.md
 
-The most important file. This is the agent's harness — it defines your codebase's patterns, invariants, and what NOT to do. Agents read this at the start of every session.
+The most important file. This is the agent's behavioral harness — it defines your codebase's patterns, invariants, and anti-patterns. Agents read this at the start of every session.
 
 Key sections to customize:
 - **Layer boundaries** — what depends on what
-- **Architectural invariants** — what is *never* allowed (explicit absences)
+- **Architectural invariants** — what is *never* allowed
 - **Patterns** — the right way to do auth, database access, etc.
-- **Anti-patterns** — common mistakes to avoid
+- **Anti-patterns** — common mistakes to watch for
 
 Keep it under 150 lines. Every line burns context tokens on every agent turn.
 
 ### .claude/hooks/
 
-Hard gates that run *inside* the agent loop and cannot be reasoned around:
+Hard gates that run *inside* the agent loop. The agent cannot reason around them:
 
-| Hook | Trigger | What it does |
-|------|---------|-------------|
-| `inject-env.sh` | SessionStart | Sets DATABASE_URL, NEO4J_URI, etc. |
-| `enforce-tenant-safety.sh` | PreToolUse(Bash) | Blocks DROP TABLE, raw DB writes without tenant scope |
-| `run-linter.sh` | PostToolUse(Edit/Write) | Runs ruff + mypy on changed files (async) |
-| `require-tests-pass.sh` | Stop | Prevents agent from stopping if tests fail (exit 2) |
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `inject-env.sh` | SessionStart | Inject DATABASE_URL, NEO4J_URI, etc. |
+| `enforce-tenant-safety.sh` | PreToolUse(Bash) | Block DROP TABLE, unscoped DB writes |
+| `run-linter.sh` | PostToolUse(Edit/Write) | Run ruff + mypy on changed files |
+| `require-tests-pass.sh` | Stop | Prevent agent from stopping if tests fail |
 
 ---
 
 ## Self-Improving Pipeline
 
-AgentFactory gets better over time. Every pipeline run is logged, and patterns are extracted weekly:
+AgentFactory gets better over time through a closed feedback loop:
 
-1. **Outcome logging** — Every review (pass or fail) is recorded in `data/agent-outcomes.jsonl` with the result, risk tier, files changed, and review findings.
+```
+  Ticket → PR → Review → Outcome logged
+                              │
+                              ▼
+                    Weekly pattern extraction
+                              │
+                              ▼
+                    .claude/rules/ updated (via PR)
+                              │
+                              ▼
+                    Next agent run reads learned patterns
+```
 
-2. **Pattern extraction** — A weekly job analyzes outcomes and proposes updates to `.claude/rules/patterns.md` (what works) and `.claude/rules/anti-patterns.md` (recurring mistakes). Updates are proposed as PRs for human review.
+1. **Outcome logging** — Every pipeline run is recorded in `data/agent-outcomes.jsonl` with the result, risk tier, files changed, review findings, cost, and duration.
 
-3. **Agent reads rules** — Before writing code, the agent reads the learned patterns and anti-patterns. This means the agent learns from its own successes and failures across all tickets.
+2. **Pattern extraction** — A weekly job analyzes outcomes and proposes updates to `.claude/rules/`. Patterns require 3+ successful appearances; anti-patterns require 2+ recurring failures. Updates are submitted as PRs for human review.
 
-4. **Cost tracking** — Every agent run captures cost, turns, and duration. These are displayed in the PR body so you can track spend per ticket.
+3. **Agent reads rules** — Before writing code, the agent reads the latest learned patterns and anti-patterns. It learns from its own history across all tickets.
 
-The separation is intentional: `CLAUDE.md` is the constitution (human-authored rules that never drift), `.claude/rules/` is curated from data (auto-generated, human-reviewed before merge).
+4. **Cost tracking** — Every PR body includes a stats table with cost, turns, and duration per step.
 
----
-
-## Self-Hosting vs Managed
-
-**Self-hosting (this repo):** Full control. Deploy the orchestrator to Cloud Run, configure your own GitHub App, bring your own secrets. Free beyond compute costs (~$0.10–0.50/PR in AI costs).
-
-**Managed (coming soon):** One-click install, no infra to manage. Sign up at [agentfactory.dev](https://agentfactory.dev) *(waitlist open)*.
-
----
-
-## Dogfooding
-
-AgentFactory uses itself. This repo's own issues go through the same pipeline:
-
-1. Create an issue on this repo describing a bug or feature
-2. Add the `ai-agent` label
-3. AgentFactory writes the code, opens a PR, reviews it, and remediates findings
-4. A human (you) reviews and merges
-
-This is the fastest way to understand what AgentFactory does — watch it work on its own codebase.
+The separation is intentional: **`CLAUDE.md`** is the constitution (human-authored, never auto-modified). **`.claude/rules/`** is curated from data (auto-generated, human-reviewed before merge).
 
 ---
 
 ## Trigger Sources
 
-| Source | Trigger | Orchestrator needed? | Setup |
-|--------|---------|---------------------|-------|
-| **GitHub Issues** | Add `ai-agent` label to an issue | No | Just workflow files + secrets |
-| **ClickUp** | Add `ai-agent` tag to a ticket | Yes | Deploy orchestrator + register webhook |
-| **Manual** | `gh api repos/.../dispatches` | No | Just workflow files + secrets |
+| Source | Trigger | Orchestrator needed? | Setup complexity |
+|--------|---------|---------------------|-----------------|
+| **GitHub Issues** | Add `ai-agent` label | No | Workflow files + 3 secrets |
+| **ClickUp** | Add `ai-agent` tag | Yes | Deploy orchestrator + webhook |
+| **Manual dispatch** | `gh api repos/.../dispatches` | No | Workflow files + 3 secrets |
 
-All sources produce the same `repository_dispatch` event with the same payload format. The downstream pipeline (write → review → remediate) is identical.
+All sources produce the same `repository_dispatch` event. The downstream pipeline (write &rarr; review &rarr; remediate) is identical regardless of trigger source.
 
 ---
 
-## License
+## Dogfooding
 
-MIT — see [LICENSE](LICENSE).
+AgentFactory builds itself. This repo's own issues go through the same pipeline:
+
+1. Create an issue describing a bug or feature
+2. Add the `ai-agent` label
+3. AgentFactory triages, writes code, opens a PR, reviews, and remediates
+4. A human reviews and merges
+
+This is the fastest way to understand what AgentFactory does — watch it work on its own codebase.
+
+---
+
+## Self-Hosting vs Managed
+
+**Self-hosting (this repo):** Full control. Deploy to Cloud Run, configure your own GitHub App, bring your own API keys. Free beyond compute costs (~$0.10-0.50/PR in AI costs depending on complexity).
+
+**Managed (coming soon):** One-click GitHub App install, hosted infrastructure, dashboard with cost analytics and success rates. [agentfactory.dev](https://agentfactory.dev)
 
 ---
 
 ## Contributing
 
-PRs welcome. The codebase is intentionally small (~400 lines of Python). Key contribution areas:
+PRs welcome. The codebase is ~2,100 lines of Python with 528 tests at 91% coverage. Key contribution areas:
 
-- Additional webhook providers (Linear, Jira, GitHub Issues)
-- More hook examples for common frameworks (Django, Rails, Express)
+- Additional webhook providers (Linear, Jira, Shortcut)
+- Hook examples for common frameworks (Django, Rails, Express)
 - Neon Database branching integration for per-run Postgres isolation
 - E2B sandbox integration for higher-isolation agent runs
+- MCP server integrations for database schema introspection
+
+---
+
+## License
+
+MIT &mdash; see [LICENSE](LICENSE).
