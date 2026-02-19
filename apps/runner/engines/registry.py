@@ -9,8 +9,11 @@ import os
 
 import structlog
 
+from apps.orchestrator.providers import ENGINE_MODEL_AFFINITY
 from apps.runner.engines.aider import AiderAdapter
 from apps.runner.engines.claude_code import ClaudeCodeAdapter
+from apps.runner.engines.codex import CodexAdapter
+from apps.runner.engines.gemini_cli import GeminiCliAdapter
 from apps.runner.engines.protocol import AgentEngine
 
 logger = structlog.get_logger()
@@ -29,6 +32,8 @@ def _build_registry() -> dict[str, AgentEngine]:
     """Build the engine registry. Called once."""
     return {
         "claude-code": ClaudeCodeAdapter(),
+        "codex": CodexAdapter(),
+        "gemini-cli": GeminiCliAdapter(),
         "aider": AiderAdapter(),
     }
 
@@ -69,8 +74,8 @@ def select_engine(
     """Pick the best engine for a given model.
 
     Priority:
-    1. Explicit engine override (preferred_engine or env var)
-    2. Native engine for the model family
+    1. Explicit engine override (preferred_engine or LAILATOV_ENGINE env var)
+    2. Model affinity from ENGINE_MODEL_AFFINITY
     3. aider as universal fallback
 
     Args:
@@ -88,12 +93,13 @@ def select_engine(
         logger.info("engine.select.override", engine=engine_name)
         return get_engine(engine_name)
 
-    # 2. Native engine matching from model name
+    # 2. Model affinity matching
     if model:
         lower = model.lower()
-        if lower.startswith("claude-"):
-            logger.info("engine.select.native", engine="claude-code", model=model)
-            return get_engine("claude-code")
+        for prefix, affinity_engine in ENGINE_MODEL_AFFINITY:
+            if lower.startswith(prefix):
+                logger.info("engine.select.affinity", engine=affinity_engine, model=model)
+                return get_engine(affinity_engine)
 
     # 3. Universal fallback
     logger.info("engine.select.fallback", engine="aider", model=model)

@@ -561,6 +561,36 @@ class TestEngineRegistry:
         engine = select_engine()
         assert engine.name == "aider"
 
+    def test_registry_has_four_engines(self):
+        from apps.runner.engines.registry import get_registry
+
+        registry = get_registry()
+        assert set(registry.keys()) == {"claude-code", "codex", "gemini-cli", "aider"}
+
+    def test_get_codex(self):
+        engine = get_engine("codex")
+        assert engine.name == "codex"
+
+    def test_get_gemini_cli(self):
+        engine = get_engine("gemini-cli")
+        assert engine.name == "gemini-cli"
+
+    def test_select_gpt_model_returns_codex(self):
+        engine = select_engine(model="gpt-4.1")
+        assert engine.name == "codex"
+
+    def test_select_gemini_model_returns_gemini_cli(self):
+        engine = select_engine(model="gemini-2.5-pro")
+        assert engine.name == "gemini-cli"
+
+    def test_select_o3_returns_codex(self):
+        engine = select_engine(model="o3-mini")
+        assert engine.name == "codex"
+
+    def test_select_deepseek_falls_to_aider(self):
+        engine = select_engine(model="deepseek-chat")
+        assert engine.name == "aider"
+
 
 class TestTail:
     """Tests for output tail utility."""
