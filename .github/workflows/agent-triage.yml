@@ -150,6 +150,51 @@ jobs:
             - Write the JSON file immediately, do not over-analyze
           claude_args: "--max-turns 5 --model ${{ vars.TRIAGE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }} --allowedTools 'Read,Bash'"
 
+      - name: Triage with Claude (fallback model)
+        id: triage_fallback
+        if: steps.triage.outcome == 'failure' && vars.TRIAGE_FALLBACK_MODEL != ''
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          settings: ${{ secrets.CLAUDE_SETTINGS }}
+          allowed_bots: "agentfactory-bot[bot]"
+          prompt: |
+            You are triaging a GitHub issue. Read /tmp/issue_context.md.
+
+            Quickly evaluate:
+            1. Is the desired behavior clearly described?
+            2. Are acceptance criteria specified or inferable?
+            3. Are there ambiguous requirements with multiple valid interpretations?
+
+            Write your result to /tmp/triage_result.json:
+            {
+              "is_clear": true,
+              "confidence": 0.9,
+              "clarification_needed": null
+            }
+
+            Or if unclear:
+            {
+              "is_clear": false,
+              "confidence": 0.4,
+              "clarification_needed": {
+                "question": "ONE specific question",
+                "default_assumption": "what you'd assume if no answer",
+                "why": "brief reason"
+              }
+            }
+
+            Rules:
+            - confidence >= 0.8 → is_clear = true
+            - Multiple valid interpretations → is_clear = false
+            - Write the JSON file immediately, do not over-analyze
+          claude_args: "--max-turns 5 --model ${{ vars.TRIAGE_FALLBACK_MODEL }} --allowedTools 'Read,Bash'"
+
       - name: Parse triage result
         id: parse
         run: |
