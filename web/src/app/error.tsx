@@ -1,5 +1,7 @@
 "use client";
 
+import { BugReportDialog } from "@/components/bug-report-dialog";
+
 export default function Error({
   reset,
 }: {
@@ -17,12 +19,15 @@ export default function Error({
       <p className="mt-[var(--space-3)] text-[var(--color-text-secondary)]">
         An unexpected error occurred. Please try again.
       </p>
-      <button
-        onClick={reset}
-        className="mt-[var(--space-8)] rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-6)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
-      >
-        Try again
-      </button>
+      <div className="mt-[var(--space-8)] flex items-center gap-[var(--space-4)]">
+        <button
+          onClick={reset}
+          className="rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-6)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
+        >
+          Try again
+        </button>
+        <BugReportDialog />
+      </div>
     </div>
   );
 }
