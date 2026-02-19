@@ -12,8 +12,9 @@ Three layers: TRIAGE (evaluate clarity) → EXECUTE (write + review + remediate)
 
 ```
 apps/orchestrator/
-├── main.py                    FastAPI app — lifespan, middleware, health
+├── main.py                    FastAPI app — lifespan, middleware, health, /ready
 ├── models.py                  AgentTask dataclass — parse-at-boundary
+├── metrics.py                 Prometheus counters/histograms — custom registry
 ├── routers/
 │   ├── clickup.py             ClickUp webhook — HMAC verify, dispatch to GitHub
 │   └── callbacks.py           GitHub Actions callbacks — notify Slack/ClickUp

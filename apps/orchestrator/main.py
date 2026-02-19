@@ -6,16 +6,21 @@ Responsibilities:
 - Receive GitHub Actions callbacks (routed to routers/callbacks.py)
 - Emit structured JSON logs for Cloud Logging ingestion
 - Expose Prometheus metrics at /metrics
+- Validate risk-policy.json schema at startup
 """
 
 from __future__ import annotations
 
+import fnmatch
+import json
 import logging
 import os
+import sys
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, Request, Response, status
@@ -54,6 +59,91 @@ def _configure_logging() -> None:
 _configure_logging()
 logger = structlog.get_logger(__name__)
 
+VALID_TIERS = {"high", "medium", "low"}
+
+
+# ── Risk policy validation ────────────────────────────────────────────────────
+def _validate_risk_policy(policy_path: str = "risk-policy.json") -> list[str]:
+    """Validate risk-policy.json schema and return a list of errors (empty if valid).
+
+    Checks:
+    - File exists and is valid JSON
+    - ``riskTierRules`` key exists with only valid tier names (high/medium/low)
+    - ``mergePolicy`` keys match ``riskTierRules`` keys exactly
+    - All glob patterns are syntactically valid
+    """
+    errors: list[str] = []
+    path = Path(policy_path)
+
+    if not path.exists():
+        return [f"risk-policy.json not found at {policy_path}"]
+
+    try:
+        policy = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        return [f"risk-policy.json is not valid JSON: {exc}"]
+
+    if not isinstance(policy, dict):
+        return ["risk-policy.json root must be a JSON object"]
+
+    # Validate riskTierRules
+    tier_rules = policy.get("riskTierRules")
+    if tier_rules is None:
+        errors.append("Missing required key: riskTierRules")
+    elif not isinstance(tier_rules, dict):
+        errors.append("riskTierRules must be a JSON object")
+    else:
+        invalid_tiers = set(tier_rules.keys()) - VALID_TIERS
+        if invalid_tiers:
+            errors.append(
+                f"Invalid tier names in riskTierRules: {sorted(invalid_tiers)}"
+            )
+
+        # Validate glob patterns
+        for tier, patterns in tier_rules.items():
+            if not isinstance(patterns, list):
+                errors.append(
+                    f"riskTierRules.{tier} must be an array of glob patterns"
+                )
+                continue
+            for pattern in patterns:
+                if not isinstance(pattern, str) or not pattern.strip():
+                    errors.append(
+                        f"riskTierRules.{tier} contains invalid pattern: {pattern!r}"
+                    )
+                    continue
+                # Validate the glob is syntactically usable
+                try:
+                    fnmatch.translate(pattern)
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(
+                        f"riskTierRules.{tier} pattern {pattern!r} is invalid: {exc}"
+                    )
+
+    # Validate mergePolicy
+    merge_policy = policy.get("mergePolicy")
+    if merge_policy is None:
+        errors.append("Missing required key: mergePolicy")
+    elif not isinstance(merge_policy, dict):
+        errors.append("mergePolicy must be a JSON object")
+    elif tier_rules and isinstance(tier_rules, dict):
+        tier_keys = set(tier_rules.keys())
+        merge_keys = set(merge_policy.keys())
+        if tier_keys != merge_keys:
+            missing_from_merge = tier_keys - merge_keys
+            extra_in_merge = merge_keys - tier_keys
+            if missing_from_merge:
+                errors.append(
+                    f"mergePolicy missing tiers: {sorted(missing_from_merge)}"
+                )
+            if extra_in_merge:
+                errors.append(
+                    f"mergePolicy has extra tiers not in riskTierRules: "
+                    f"{sorted(extra_in_merge)}"
+                )
+
+    return errors
+
 
 # ── Lifespan: startup validation ───────────────────────────────────────────────
 @asynccontextmanager
@@ -62,6 +152,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Validate configuration at startup. Log clearly what's missing.
     Cloud Run will restart the container on failure — we want clear logs.
     """
+    # Validate risk-policy.json schema
+    policy_errors = _validate_risk_policy()
+    if policy_errors:
+        for err in policy_errors:
+            logger.error("risk_policy_validation_failed", error=err)
+        logger.error(
+            "risk_policy_invalid",
+            error_count=len(policy_errors),
+            impact="Shutting down — fix risk-policy.json before restarting.",
+        )
+        sys.exit(1)
+
+    logger.info("risk_policy_validated")
+
     required: list[str] = [
         "CLICKUP_WEBHOOK_SECRET",
         "CLICKUP_API_TOKEN",
