@@ -22,6 +22,8 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from apps.orchestrator import metrics as _metrics
+
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
@@ -305,6 +307,7 @@ async def _post_slack(text: str) -> None:
                     response_body=exc.response.text[:200],
                     error=str(exc),
                 )
+                _metrics.NOTIFICATION_FAILURES_TOTAL.labels(target="slack").inc()
                 return
             except httpx.RequestError as exc:
                 if attempt < 2:
@@ -316,6 +319,7 @@ async def _post_slack(text: str) -> None:
                     await asyncio.sleep(delays[attempt])
                     continue
                 logger.warning("slack_request_error", error=str(exc))
+                _metrics.NOTIFICATION_FAILURES_TOTAL.labels(target="slack").inc()
                 return
 
 
@@ -370,6 +374,7 @@ async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
                     response_body=exc.response.text[:200],
                     error=str(exc),
                 )
+                _metrics.NOTIFICATION_FAILURES_TOTAL.labels(target="clickup").inc()
                 return
             except httpx.RequestError as exc:
                 if attempt < 2:
@@ -382,6 +387,7 @@ async def _post_clickup_comment(task_id: str, comment_text: str) -> None:
                     await asyncio.sleep(delays[attempt])
                     continue
                 logger.warning("clickup_request_error", task_id=task_id, error=str(exc))
+                _metrics.NOTIFICATION_FAILURES_TOTAL.labels(target="clickup").inc()
                 return
 
 

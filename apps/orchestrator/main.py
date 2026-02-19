@@ -5,6 +5,7 @@ Responsibilities:
 - Receive and verify ClickUp webhooks (routed to routers/clickup.py)
 - Receive GitHub Actions callbacks (routed to routers/callbacks.py)
 - Emit structured JSON logs for Cloud Logging ingestion
+- Expose Prometheus metrics at /metrics
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from apps import __version__
+from apps.orchestrator import metrics as _metrics
 from apps.orchestrator.routers import callbacks, clickup
 
 
@@ -130,6 +132,10 @@ async def log_requests(
     Propagates the client-supplied ``X-Request-ID`` header when present;
     otherwise generates a fresh UUID4. The request ID is bound to the
     structlog context so all logs within the request carry ``request_id``.
+
+    Also records Prometheus metrics:
+    - http_requests_total (method, path, status_code)
+    - http_request_duration_seconds (method, path)
     """
     start = time.monotonic()
 
@@ -145,8 +151,20 @@ async def log_requests(
 
     response: Response = await call_next(request)
 
-    duration_ms = round((time.monotonic() - start) * 1000, 2)
+    duration_s = time.monotonic() - start
+    duration_ms = round(duration_s * 1000, 2)
     logger.info("http_request", status=response.status_code, duration_ms=duration_ms)
+
+    path = request.url.path
+    _metrics.HTTP_REQUESTS_TOTAL.labels(
+        method=request.method,
+        path=path,
+        status_code=str(response.status_code),
+    ).inc()
+    _metrics.HTTP_REQUEST_DURATION_SECONDS.labels(
+        method=request.method,
+        path=path,
+    ).observe(duration_s)
 
     response.headers["X-Request-ID"] = request_id
     return response
@@ -155,6 +173,10 @@ async def log_requests(
 # ── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(clickup.router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(callbacks.router, prefix="/callbacks", tags=["callbacks"])
+
+
+# ── Metrics ────────────────────────────────────────────────────────────────────
+app.mount("/metrics", _metrics.make_metrics_app())
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────

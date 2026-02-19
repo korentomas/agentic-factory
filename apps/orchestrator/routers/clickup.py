@@ -22,6 +22,7 @@ import httpx
 import structlog
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
+from apps.orchestrator import metrics as _metrics
 from apps.orchestrator.models import AgentTask
 
 logger = structlog.get_logger(__name__)
@@ -267,6 +268,8 @@ async def _dispatch_task(task_id: str) -> None:
     except httpx.RequestError as exc:
         log.error("github_dispatch_request_error", error=str(exc))
         return
+
+    _metrics.WEBHOOK_DISPATCHES_TOTAL.labels(source="clickup").inc()
 
     log.info(
         "github_dispatch_sent",
