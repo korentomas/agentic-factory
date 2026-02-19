@@ -239,6 +239,106 @@ export const chatMessages = pgTable(
 );
 
 /* ─────────────────────────────────────────────────────────
+ * Task execution tables (Open SWE-style)
+ * ───────────────────────────────────────────────────────── */
+
+/** Task thread status values. */
+export type TaskThreadStatus =
+  | "pending"
+  | "running"
+  | "committing"
+  | "complete"
+  | "failed"
+  | "cancelled";
+
+/** Task threads — one per agent execution. */
+export const taskThreads = pgTable(
+  "task_threads",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    repoUrl: text("repo_url").notNull(),
+    branch: text("branch").notNull(),
+    baseBranch: text("base_branch").notNull().default("main"),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    status: text("status").$type<TaskThreadStatus>().notNull().default("pending"),
+    engine: text("engine"),
+    model: text("model"),
+    riskTier: text("risk_tier").$type<RiskTier>().default("medium"),
+    costUsd: numeric("cost_usd", { precision: 10, scale: 4 }).default("0"),
+    numTurns: integer("num_turns").default(0),
+    durationMs: integer("duration_ms").default(0),
+    commitSha: text("commit_sha"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (thread) => [
+    index("task_threads_user_id_idx").on(thread.userId),
+    index("task_threads_status_idx").on(thread.status),
+    index("task_threads_created_at_idx").on(thread.createdAt),
+  ],
+);
+
+/** Message role within a task execution. */
+export type TaskMessageRole =
+  | "human"
+  | "assistant"
+  | "tool"
+  | "system"
+  | "manager";
+
+/** Task messages — streaming events within a thread. */
+export const taskMessages = pgTable(
+  "task_messages",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => taskThreads.id, { onDelete: "cascade" }),
+    role: text("role").$type<TaskMessageRole>().notNull(),
+    content: text("content"),
+    toolName: text("tool_name"),
+    toolInput: text("tool_input"),
+    toolOutput: text("tool_output"),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (msg) => [
+    index("task_messages_thread_id_idx").on(msg.threadId),
+    index("task_messages_created_at_idx").on(msg.createdAt),
+  ],
+);
+
+/** Task plan step status. */
+export type TaskPlanStepStatus = "pending" | "in_progress" | "completed" | "skipped";
+
+/** Task plans — agent execution plans with revisions. */
+export const taskPlans = pgTable(
+  "task_plans",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => taskThreads.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull().default(1),
+    steps: json("steps").$type<Array<{
+      title: string;
+      description: string;
+      status: TaskPlanStepStatus;
+    }>>().notNull(),
+    createdBy: text("created_by").default("agent"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (plan) => [
+    index("task_plans_thread_id_idx").on(plan.threadId),
+  ],
+);
+
+/* ─────────────────────────────────────────────────────────
  * Relations
  * ───────────────────────────────────────────────────────── */
 
@@ -249,6 +349,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   agentOutcomes: many(agentOutcomes),
   repositories: many(repositories),
   chatSessions: many(chatSessions),
+  taskThreads: many(taskThreads),
 }));
 
 export const accountsRelations = relations(accounts, ({ one }) => ({
@@ -302,5 +403,28 @@ export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   session: one(chatSessions, {
     fields: [chatMessages.sessionId],
     references: [chatSessions.id],
+  }),
+}));
+
+export const taskThreadsRelations = relations(taskThreads, ({ one, many }) => ({
+  user: one(users, {
+    fields: [taskThreads.userId],
+    references: [users.id],
+  }),
+  messages: many(taskMessages),
+  plans: many(taskPlans),
+}));
+
+export const taskMessagesRelations = relations(taskMessages, ({ one }) => ({
+  thread: one(taskThreads, {
+    fields: [taskMessages.threadId],
+    references: [taskThreads.id],
+  }),
+}));
+
+export const taskPlansRelations = relations(taskPlans, ({ one }) => ({
+  thread: one(taskThreads, {
+    fields: [taskPlans.threadId],
+    references: [taskThreads.id],
   }),
 }));
