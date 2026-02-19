@@ -51,6 +51,7 @@ dev = [
 
 [project.scripts]
 agent-factory = "apps.orchestrator.main:cli_main"
+lailatov-runner = "apps.runner.main:cli_main"
 agentfactory-extract = "apps.orchestrator.jobs.pattern_extraction:main"
 
 [tool.hatch.build.targets.wheel]

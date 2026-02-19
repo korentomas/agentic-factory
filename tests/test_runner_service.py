@@ -1,9 +1,12 @@
 """Tests for apps.runner.main — the Agent Runner HTTP service."""
 
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
 
-from apps.runner.main import _tasks, app
+from apps.runner.main import _execute_task, _tasks, app
 from apps.runner.models import RunnerResult, RunnerTask, TaskState, TaskStatus
 
 
@@ -172,3 +175,213 @@ class TestSubmitTask:
             "task_id": "t1",
         })
         assert resp.status_code == 422
+
+
+# ── _execute_task tests ──────────────────────────────────────────────────────
+
+
+class TestExecuteTask:
+    """Tests for _execute_task background function."""
+
+    def _make_state(self, task_id="t1"):
+        task = RunnerTask(
+            task_id=task_id,
+            repo_url="https://github.com/org/repo",
+            branch="agent/t1",
+            base_branch="main",
+            title="Fix bug",
+            description="Fix the login bug",
+        )
+        state = TaskState(task=task)
+        _tasks[task_id] = state
+        return state
+
+    @pytest.mark.asyncio
+    async def test_execute_success_flow(self):
+        state = self._make_state()
+        mock_engine = AsyncMock()
+        mock_engine.name = "claude-code"
+        mock_engine.run = AsyncMock(return_value=RunnerResult(
+            task_id="t1",
+            status="success",
+            engine="claude-code",
+            model="claude-sonnet-4-6",
+            cost_usd=0.10,
+            num_turns=5,
+            duration_ms=15000,
+        ))
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.commit_changes",
+                new_callable=AsyncMock,
+                return_value="abc123",
+            ),
+            patch(
+                "apps.runner.main.push_changes",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "apps.runner.main.list_changed_files",
+                new_callable=AsyncMock,
+                return_value=["src/fix.py"],
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        assert state.status == TaskStatus.COMPLETE
+        assert state.result is not None
+        assert state.result.commit_sha == "abc123"
+        assert state.result.files_changed == ["src/fix.py"]
+
+    @pytest.mark.asyncio
+    async def test_execute_engine_failure(self):
+        state = self._make_state("t2")
+        mock_engine = AsyncMock()
+        mock_engine.name = "claude-code"
+        mock_engine.run = AsyncMock(return_value=RunnerResult(
+            task_id="t2",
+            status="failure",
+            engine="claude-code",
+            model="claude-sonnet-4-6",
+            error_message="API key invalid",
+        ))
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        assert state.status == TaskStatus.FAILED
+        assert state.result is not None
+        assert state.result.error_message == "API key invalid"
+
+    @pytest.mark.asyncio
+    async def test_execute_workspace_creation_fails(self):
+        state = self._make_state("t3")
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("clone failed"),
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        assert state.status == TaskStatus.FAILED
+        assert state.result is not None
+        assert "clone failed" in state.result.error_message
+
+    @pytest.mark.asyncio
+    async def test_execute_no_changes_to_commit(self):
+        state = self._make_state("t4")
+        mock_engine = AsyncMock()
+        mock_engine.name = "aider"
+        mock_engine.run = AsyncMock(return_value=RunnerResult(
+            task_id="t4",
+            status="success",
+            engine="aider",
+            model="deepseek-chat",
+            cost_usd=0.02,
+            num_turns=3,
+            duration_ms=8000,
+        ))
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.commit_changes",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "apps.runner.main.list_changed_files",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "apps.runner.main.push_changes",
+                new_callable=AsyncMock,
+            ) as mock_push,
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await _execute_task(state)
+
+        assert state.status == TaskStatus.COMPLETE
+        assert state.result.commit_sha is None
+        mock_push.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_keep_workspaces(self, monkeypatch):
+        monkeypatch.setenv("LAILATOV_KEEP_WORKSPACES", "1")
+        state = self._make_state("t5")
+        mock_engine = AsyncMock()
+        mock_engine.name = "claude-code"
+        mock_engine.run = AsyncMock(return_value=RunnerResult(
+            task_id="t5",
+            status="failure",
+            engine="claude-code",
+            model="claude-sonnet-4-6",
+            error_message="test error",
+        ))
+
+        with (
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+                return_value=mock_engine,
+            ),
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ) as mock_cleanup,
+        ):
+            await _execute_task(state)
+
+        mock_cleanup.assert_not_called()

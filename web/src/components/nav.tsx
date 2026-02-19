@@ -31,10 +31,10 @@ export function Nav() {
             Engines
           </Link>
           <Link
-            href="/login"
+            href="/dashboard"
             className="rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-4)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
           >
-            Get Started
+            Dashboard
           </Link>
         </div>
       </div>

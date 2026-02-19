@@ -16,6 +16,7 @@ apps/orchestrator/
 ├── models.py                  AgentTask dataclass — parse-at-boundary
 ├── metrics.py                 Prometheus counters/histograms — custom registry
 ├── providers.py               Multi-provider config, engine selection, model tiering
+├── runner_client.py           RunnerClient — HTTP bridge to Agent Runner service
 ├── routers/
 │   ├── clickup.py             ClickUp webhook — HMAC verify, dispatch to GitHub
 │   └── callbacks.py           GitHub Actions callbacks — notify Slack/ClickUp
@@ -36,7 +37,7 @@ apps/runner/                   Agent Runner — executes coding agents as subpro
     └── aider.py               Aider adapter — universal fallback via LiteLLM
 
 web/                           Next.js website — customer-facing SaaS
-├── src/app/                   App router pages (landing, login, API routes)
+├── src/app/                   App router pages (landing, login, dashboard, API routes)
 ├── src/components/            Bento grid, nav, pricing cards, footer
 ├── src/lib/                   Auth (NextAuth + GitHub), Stripe, utilities
 └── .env.example               Required env vars for local dev
@@ -86,6 +87,16 @@ docs/
 - Outcome data (`agent-outcomes.jsonl`) is append-only.
 - Engine adapters use `create_subprocess_exec` (not shell) — no injection risk.
 - The Agent Runner owns workspace lifecycle: create → execute → commit → cleanup.
+
+## Dispatch Paths
+
+Two dispatch paths exist — the orchestrator chooses based on `DISPATCH_TARGET`:
+
+1. **GitHub Actions** (default): Orchestrator → `repository_dispatch` → workflow YAML
+2. **Agent Runner**: Orchestrator → `RunnerClient` → Runner HTTP API → subprocess
+
+The Runner path gives full control over workspace lifecycle, engine selection,
+and cost tracking without CI limitations (6h timeout, cold starts, no state).
 
 ## Layer Boundaries
 
