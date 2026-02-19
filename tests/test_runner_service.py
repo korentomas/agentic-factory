@@ -754,3 +754,153 @@ class TestExecuteTask:
 
         assert breaker._failure_count == 0
         assert breaker.state == "closed"
+
+
+class TestGitHubAppTokenIntegration:
+    """Tests for GitHub App token rotation in _execute_task."""
+
+    @pytest.mark.asyncio
+    async def test_uses_static_token_when_provided(self):
+        """When github_token is provided, GitHub App token is NOT called."""
+        task = RunnerTask(
+            task_id="t-token",
+            repo_url="https://github.com/org/repo",
+            branch="b",
+            base_branch="main",
+            description="desc",
+        )
+        state = TaskState(task=task)
+        _tasks["t-token"] = state
+
+        with (
+            patch(
+                "apps.runner.main._get_github_app_token",
+                new_callable=AsyncMock,
+            ) as mock_app_token,
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ),
+            patch(
+                "apps.runner.main.select_engine",
+            ) as mock_engine,
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_adapter = AsyncMock()
+            mock_adapter.name = "claude-code"
+            mock_adapter.run = AsyncMock(
+                return_value=RunnerResult(
+                    task_id="t-token",
+                    status="success",
+                    engine="claude-code",
+                    model="claude-sonnet-4-6",
+                )
+            )
+            mock_engine.return_value = mock_adapter
+
+            await _execute_task(state, github_token="static-token-abc")
+
+        # Static token was passed, so no App token rotation
+        mock_app_token.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_github_app_token(self):
+        """When no github_token, _get_github_app_token is called."""
+        task = RunnerTask(
+            task_id="t-app",
+            repo_url="https://github.com/org/repo",
+            branch="b",
+            base_branch="main",
+            description="desc",
+        )
+        state = TaskState(task=task)
+        _tasks["t-app"] = state
+
+        with (
+            patch(
+                "apps.runner.main._get_github_app_token",
+                new_callable=AsyncMock,
+                return_value="ghs_app_token_123",
+            ) as mock_app_token,
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ) as mock_create,
+            patch(
+                "apps.runner.main.select_engine",
+            ) as mock_engine,
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_adapter = AsyncMock()
+            mock_adapter.name = "claude-code"
+            mock_adapter.run = AsyncMock(
+                return_value=RunnerResult(
+                    task_id="t-app",
+                    status="success",
+                    engine="claude-code",
+                    model="claude-sonnet-4-6",
+                )
+            )
+            mock_engine.return_value = mock_adapter
+
+            await _execute_task(state, github_token=None)
+
+        mock_app_token.assert_awaited_once()
+        # Verify the app token was passed to create_workspace
+        assert mock_create.call_args.kwargs["github_token"] == "ghs_app_token_123"
+
+    @pytest.mark.asyncio
+    async def test_github_app_token_none_proceeds_without_auth(self):
+        """When GitHub App is not configured, clone proceeds without token."""
+        task = RunnerTask(
+            task_id="t-noapp",
+            repo_url="https://github.com/org/repo",
+            branch="b",
+            base_branch="main",
+            description="desc",
+        )
+        state = TaskState(task=task)
+        _tasks["t-noapp"] = state
+
+        with (
+            patch(
+                "apps.runner.main._get_github_app_token",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "apps.runner.main.create_workspace",
+                new_callable=AsyncMock,
+                return_value=Path("/tmp/fake"),
+            ) as mock_create,
+            patch(
+                "apps.runner.main.select_engine",
+            ) as mock_engine,
+            patch(
+                "apps.runner.main.cleanup_workspace",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_adapter = AsyncMock()
+            mock_adapter.name = "claude-code"
+            mock_adapter.run = AsyncMock(
+                return_value=RunnerResult(
+                    task_id="t-noapp",
+                    status="success",
+                    engine="claude-code",
+                    model="claude-sonnet-4-6",
+                )
+            )
+            mock_engine.return_value = mock_adapter
+
+            await _execute_task(state, github_token=None)
+
+        assert mock_create.call_args.kwargs["github_token"] is None

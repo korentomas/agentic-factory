@@ -288,6 +288,43 @@ async def cancel_task(task_id: str) -> dict[str, str]:
     return {"task_id": task_id, "status": "cancelled"}
 
 
+# ── GitHub App token rotation ────────────────────────────────────────────────
+
+_token_manager = None  # Lazily initialized
+
+
+async def _get_github_app_token(log: structlog.stdlib.BoundLogger) -> str | None:
+    """Try to get a short-lived token via GitHub App, if configured.
+
+    Returns None if the GitHub App is not configured (no env vars set).
+    """
+    global _token_manager  # noqa: PLW0603
+
+    app_id = _get_env("GITHUB_APP_ID")
+    installation_id = _get_env("GITHUB_APP_INSTALLATION_ID")
+    private_key = _get_env("GITHUB_APP_PRIVATE_KEY")
+
+    if not (app_id and installation_id and private_key):
+        return None
+
+    try:
+        if _token_manager is None:
+            from apps.runner.github_tokens import GitHubTokenManager
+
+            _token_manager = GitHubTokenManager(
+                app_id=int(app_id),
+                private_key=private_key,
+                installation_id=int(installation_id),
+            )
+
+        token = await _token_manager.get_token()
+        log.info("task.github_app_token.acquired")
+        return token
+    except Exception as exc:
+        log.warning("task.github_app_token.failed", error=str(exc))
+        return None
+
+
 # ── Task execution ───────────────────────────────────────────────────────────
 
 
@@ -307,12 +344,18 @@ async def _execute_task(state: TaskState, github_token: str | None = None) -> No
         state.started_at = time.monotonic()
         audit_log.record("task.started", task_id=task.task_id)
         log.info("task.workspace.creating")
+
+        # Use GitHub App token rotation if no static token provided
+        effective_token = github_token
+        if not effective_token:
+            effective_token = await _get_github_app_token(log)
+
         repo_path = await create_workspace(
             task_id=task.task_id,
             repo_url=task.repo_url,
             branch=task.branch,
             base_branch=task.base_branch,
-            github_token=github_token,
+            github_token=effective_token,
         )
         state.workspace_path = repo_path
 
