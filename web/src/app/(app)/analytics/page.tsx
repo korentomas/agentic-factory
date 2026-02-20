@@ -1,12 +1,8 @@
-import type { Metadata } from "next";
-import { redirect } from "next/navigation";
-import { after } from "next/server";
+"use client";
+
 import Link from "next/link";
-import { Suspense } from "react";
-import { auth } from "@/lib/auth";
-import { loadDashboardData } from "@/lib/data";
-import { getRepositories } from "@/lib/db/queries";
-import { syncGitHubReposDebounced } from "@/lib/github/sync-repos";
+import useSWR from "swr";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { PRTable } from "@/components/dashboard/pr-table";
 import { EngineBreakdownPanel } from "@/components/dashboard/engine-breakdown";
@@ -18,58 +14,25 @@ import { ConnectRepo } from "@/components/dashboard/connect-repo";
 import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
 import { ChatPanel } from "@/components/dashboard/chat-panel";
 import { AppHeader } from "@/components/v2/app-header";
+import type { DashboardData } from "@/lib/data";
 
-export const metadata: Metadata = {
-  title: "Analytics — LailaTov",
+type AnalyticsResponse = DashboardData & {
+  repoCount: number;
+  runnerOk: boolean;
+  userName: string | null;
 };
 
-export const dynamic = "force-dynamic";
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
-async function checkRunnerHealth(): Promise<boolean> {
-  const runnerUrl = process.env.RUNNER_API_URL;
-  if (!runnerUrl) return false;
-  try {
-    const res = await fetch(`${runnerUrl}/health`, {
-      headers: { Authorization: `Bearer ${process.env.RUNNER_API_KEY || ""}` },
-      next: { revalidate: 0 },
-      signal: AbortSignal.timeout(5000),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
+export default function AnalyticsPage() {
+  const { data, isLoading } = useSWR<AnalyticsResponse>(
+    "/api/analytics",
+    fetcher,
+    { refreshInterval: 30_000 },
+  );
 
-export default async function AnalyticsPage() {
-  const session = await auth();
-
-  if (!session?.user) {
-    redirect("/login");
-  }
-
-  const user = session.user;
-  const accessToken = session.accessToken;
-
-  const userId = session.user.id;
-
-  // Fire-and-forget: sync runs AFTER HTML is sent to the client
-  if (userId) {
-    after(async () => {
-      try {
-        await syncGitHubReposDebounced(userId, accessToken);
-      } catch (err) {
-        console.error("[analytics] syncGitHubRepos threw:", err);
-      }
-    });
-  }
-
-  // Load dashboard data and check setup status in parallel
-  const [data, repos, runnerOk] = await Promise.all([
-    loadDashboardData(accessToken),
-    userId ? getRepositories(userId) : Promise.resolve([]),
-    checkRunnerHealth(),
-  ]);
-  const hasData = data.outcomes.length > 0;
+  const hasData = (data?.outcomes?.length ?? 0) > 0;
+  const firstName = data?.userName?.split(" ")[0] || "developer";
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -78,21 +41,44 @@ export default async function AnalyticsPage() {
       <main className="mx-auto w-full max-w-7xl px-6 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Welcome back, {user.name?.split(" ")[0] || "developer"}
-          </h1>
-          <p className="mt-2 text-muted-foreground">
-            Your autonomous code factory is{" "}
-            {hasData ? "running" : "ready to start"}.
-          </p>
+          {isLoading && !data ? (
+            <>
+              <Skeleton className="h-9 w-80" />
+              <Skeleton className="mt-2 h-5 w-64" />
+            </>
+          ) : (
+            <>
+              <h1 className="text-3xl font-semibold tracking-tight">
+                Welcome back, {firstName}
+              </h1>
+              <p className="mt-2 text-muted-foreground">
+                Your autonomous code factory is{" "}
+                {hasData ? "running" : "ready to start"}.
+              </p>
+            </>
+          )}
         </div>
 
         {/* Stats overview */}
         <section className="mb-8">
-          <StatsCards stats={data.stats} />
+          {isLoading && !data ? (
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <Skeleton className="h-24 rounded-lg" />
+              <Skeleton className="h-24 rounded-lg" />
+              <Skeleton className="h-24 rounded-lg" />
+              <Skeleton className="h-24 rounded-lg" />
+            </div>
+          ) : data ? (
+            <StatsCards stats={data.stats} />
+          ) : null}
         </section>
 
-        <Suspense fallback={null}>
+        {isLoading && !data ? (
+          <div className="space-y-6">
+            <Skeleton className="h-10 w-96 rounded-lg" />
+            <Skeleton className="h-64 rounded-lg" />
+          </div>
+        ) : data ? (
           <DashboardTabs>
             {{
               overview: hasData ? (
@@ -104,9 +90,7 @@ export default async function AnalyticsPage() {
                     <PipelineHealth checks={data.checks} risks={data.risks} />
                   </section>
                   <section className="mb-8">
-                    <h2 className="mb-4 text-xl font-medium">
-                      Code Quality
-                    </h2>
+                    <h2 className="mb-4 text-xl font-medium">Code Quality</h2>
                     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                       <CodeRetentionPanel retention={data.codeRetention} />
                       <FileHotspotsPanel hotspots={data.fileHotspots} />
@@ -116,12 +100,13 @@ export default async function AnalyticsPage() {
               ) : (
                 <>
                   <section className="mb-8">
-                    <ConnectRepo repoCount={repos.length} hasRunner={runnerOk} />
+                    <ConnectRepo
+                      repoCount={data.repoCount}
+                      hasRunner={data.runnerOk}
+                    />
                   </section>
                   <section>
-                    <h2 className="text-xl font-medium">
-                      Recent activity
-                    </h2>
+                    <h2 className="text-xl font-medium">Recent activity</h2>
                     <div className="mt-6 rounded-lg border border-dashed border-border p-12 text-center">
                       <p className="text-muted-foreground">
                         No tasks yet. Go to{" "}
@@ -168,7 +153,7 @@ export default async function AnalyticsPage() {
               ),
             }}
           </DashboardTabs>
-        </Suspense>
+        ) : null}
       </main>
     </div>
   );
