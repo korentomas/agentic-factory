@@ -17,9 +17,13 @@ import {
   Wrench,
   AlertCircle,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
+
+const MarkdownContent = dynamic(
+  () => import("./markdown-content").then((mod) => mod.MarkdownContent),
+  { loading: () => <span className="text-muted-foreground text-sm">...</span> },
+);
 import type { TaskMessage, ThreadStatus } from "./types";
 
 function MessageCopyButton({ content }: { content: string }) {
@@ -188,9 +192,7 @@ export function ManagerChat({
                       </div>
                       {message.content ? (
                         <div className="prose prose-sm dark:prose-invert max-w-none text-sm">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {message.content}
-                          </ReactMarkdown>
+                          <MarkdownContent content={message.content} />
                         </div>
                       ) : (
                         <LoadingDots />

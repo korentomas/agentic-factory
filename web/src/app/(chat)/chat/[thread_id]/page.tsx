@@ -1,18 +1,10 @@
-"use client";
-
-import { use } from "react";
 import { ThreadView } from "@/components/v2/thread-view";
 
-interface ThreadPageProps {
-  thread_id: string;
-}
-
-export default function ThreadPage({
+export default async function ThreadPage({
   params,
 }: {
-  params: Promise<ThreadPageProps>;
+  params: Promise<{ thread_id: string }>;
 }) {
-  const { thread_id } = use(params);
-
+  const { thread_id } = await params;
   return <ThreadView threadId={thread_id} />;
 }
