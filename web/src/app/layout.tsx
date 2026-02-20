@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { ThemeProvider } from "@/components/theme-provider";
-import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -50,7 +49,7 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider defaultTheme="system" storageKey="theme">
-          <NuqsAdapter>{children}</NuqsAdapter>
+          {children}
         </ThemeProvider>
       </body>
     </html>

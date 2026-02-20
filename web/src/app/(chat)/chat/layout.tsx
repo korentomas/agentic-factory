@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import React, { Suspense } from "react";
+import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { SessionProvider } from "@/components/session-provider";
 
 export const metadata: Metadata = {
@@ -13,8 +14,10 @@ export default function ChatLayout({
   children: React.ReactNode;
 }) {
   return (
-    <SessionProvider>
-      <Suspense fallback={<div className="bg-background flex h-screen items-center justify-center"><span className="text-muted-foreground">Loading...</span></div>}>{children}</Suspense>
-    </SessionProvider>
+    <NuqsAdapter>
+      <SessionProvider>
+        <Suspense fallback={<div className="bg-background flex h-screen items-center justify-center"><span className="text-muted-foreground">Loading...</span></div>}>{children}</Suspense>
+      </SessionProvider>
+    </NuqsAdapter>
   );
 }
