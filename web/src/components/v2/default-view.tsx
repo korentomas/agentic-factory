@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Image from "next/image";
 import useSWR from "swr";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -181,11 +182,14 @@ function OnboardingChecklist({ hasThreads }: { hasThreads: boolean }) {
 function EmptyThreadState({ logoSrc }: { logoSrc: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-10">
-      <img
+      <Image
         src={logoSrc}
         alt="LailaTov"
+        width={48}
+        height={48}
         className="h-12 w-12 opacity-60"
         style={{ imageRendering: "pixelated" }}
+        unoptimized
       />
       <p className="text-muted-foreground text-center text-sm">
         Your first autonomous task is one description away

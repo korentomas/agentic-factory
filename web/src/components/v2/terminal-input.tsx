@@ -65,7 +65,7 @@ export function TerminalInput({
     "/api/repos",
     fetcher,
   );
-  const repos = repoData?.repos ?? [];
+  const repos = useMemo(() => repoData?.repos ?? [], [repoData]);
 
   // Parse owner/repo for branch API
   const [owner, repo] = selectedRepo ? selectedRepo.split("/") : [null, null];
@@ -76,7 +76,7 @@ export function TerminalInput({
     owner && repo ? `/api/repos/${owner}/${repo}/branches` : null,
     fetcher,
   );
-  const branches = branchData?.branches ?? [];
+  const branches = useMemo(() => branchData?.branches ?? [], [branchData]);
   const defaultBranch = branchData?.defaultBranch ?? "";
 
   // Whether the agent will auto-create a working branch

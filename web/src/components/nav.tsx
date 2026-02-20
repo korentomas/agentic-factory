@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { MobileMenu } from "./mobile-menu";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -10,17 +11,23 @@ export function Nav() {
           href="/"
           className="flex items-center gap-2 text-lg font-medium tracking-tight text-foreground"
         >
-          <img
+          <Image
             src="/logo.png"
             alt=""
+            width={24}
+            height={24}
             className="h-6 w-6 dark:hidden"
             style={{ imageRendering: "pixelated" }}
+            unoptimized
           />
-          <img
+          <Image
             src="/logo-dark.png"
             alt=""
+            width={24}
+            height={24}
             className="hidden h-6 w-6 dark:block"
             style={{ imageRendering: "pixelated" }}
+            unoptimized
           />
           LailaTov
         </Link>

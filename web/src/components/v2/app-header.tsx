@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { ArrowLeft } from "lucide-react";
@@ -47,11 +48,14 @@ export function AppHeader({
         )}
         {showBrand && (
           <div className="flex items-center gap-2">
-            <img
+            <Image
               src={logoSrc}
               alt="LailaTov"
+              width={24}
+              height={24}
               className="h-6 w-6"
               style={{ imageRendering: "pixelated" }}
+              unoptimized
             />
             <span className="text-foreground text-base font-semibold tracking-tight">
               LailaTov
