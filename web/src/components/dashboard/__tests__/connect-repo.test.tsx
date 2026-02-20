@@ -54,7 +54,7 @@ describe("ConnectRepo", () => {
     render(<ConnectRepo repoCount={1} hasRunner={true} />);
 
     const link = screen.getByRole("link", { name: "Create your first task" });
-    expect(link).toHaveAttribute("href", "/dashboard/tasks");
+    expect(link).toHaveAttribute("href", "/chat");
   });
 
   it("does not show create task button when prereqs not met", () => {

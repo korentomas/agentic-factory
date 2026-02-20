@@ -15,8 +15,8 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/login", req.nextUrl.origin));
   }
 
-  // Redirect authenticated users away from login page
-  if (pathname === "/login" && isAuthenticated) {
+  // Redirect authenticated users from landing page and login to /chat
+  if ((pathname === "/" || pathname === "/login") && isAuthenticated) {
     return NextResponse.redirect(new URL("/chat", req.nextUrl.origin));
   }
 
@@ -24,5 +24,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/chat/:path*", "/analytics", "/login"],
+  matcher: ["/", "/dashboard/:path*", "/chat/:path*", "/analytics", "/login"],
 };

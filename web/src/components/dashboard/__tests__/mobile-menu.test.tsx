@@ -40,6 +40,6 @@ describe("MobileMenu", () => {
 
     const dashboardLink = screen.getByText("Dashboard");
     expect(dashboardLink).toBeInTheDocument();
-    expect(dashboardLink.closest("a")).toHaveAttribute("href", "/dashboard");
+    expect(dashboardLink.closest("a")).toHaveAttribute("href", "/chat");
   });
 });
