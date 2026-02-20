@@ -4,11 +4,11 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { SessionProvider } from "@/components/session-provider";
 
 export const metadata: Metadata = {
-  title: "Chat — LailaTov",
-  description: "Create and manage autonomous coding tasks",
+  title: "LailaTov",
+  description: "Autonomous code factory",
 };
 
-export default function ChatLayout({
+export default function AppLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -16,7 +16,15 @@ export default function ChatLayout({
   return (
     <NuqsAdapter>
       <SessionProvider>
-        <Suspense fallback={<div className="bg-background flex h-screen items-center justify-center"><span className="text-muted-foreground">Loading...</span></div>}>{children}</Suspense>
+        <Suspense
+          fallback={
+            <div className="bg-background flex h-screen items-center justify-center">
+              <span className="text-muted-foreground">Loading...</span>
+            </div>
+          }
+        >
+          {children}
+        </Suspense>
       </SessionProvider>
     </NuqsAdapter>
   );

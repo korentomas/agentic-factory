@@ -8,7 +8,8 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { LogOut } from "lucide-react";
+import Link from "next/link";
+import { BarChart3, LogOut, Settings } from "lucide-react";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -96,7 +97,22 @@ export function UserPopover({ className }: UserPopoverProps) {
               </div>
             </div>
           </div>
-          <Separator className="mb-3" />
+          <Separator className="mb-1" />
+          <Link
+            href="/analytics"
+            className="flex w-full items-center rounded-md px-2 py-2 text-sm text-foreground transition-colors hover:bg-muted"
+          >
+            <BarChart3 className="mr-2 h-4 w-4" />
+            Analytics
+          </Link>
+          <Link
+            href="/chat/settings"
+            className="flex w-full items-center rounded-md px-2 py-2 text-sm text-foreground transition-colors hover:bg-muted"
+          >
+            <Settings className="mr-2 h-4 w-4" />
+            Settings
+          </Link>
+          <Separator className="my-1" />
           <Button
             variant="ghost"
             className="w-full justify-start text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/50 dark:hover:text-red-300"

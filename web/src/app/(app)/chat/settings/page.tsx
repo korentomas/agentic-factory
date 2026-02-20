@@ -55,7 +55,7 @@ export default function SettingsPage() {
 
   return (
     <div className="bg-background flex h-screen flex-col">
-      <AppHeader showBackButton backHref="/chat" title="Settings" />
+      <AppHeader showBrand />
 
       {/* Content */}
       <div className="flex-1 overflow-auto">

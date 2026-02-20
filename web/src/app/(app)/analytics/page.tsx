@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
-import { auth, signOut } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { loadDashboardData } from "@/lib/data";
 import { getRepositories } from "@/lib/db/queries";
 import { syncGitHubReposDebounced } from "@/lib/github/sync-repos";
@@ -18,7 +17,7 @@ import { FileHotspotsPanel } from "@/components/dashboard/file-hotspots";
 import { ConnectRepo } from "@/components/dashboard/connect-repo";
 import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
 import { ChatPanel } from "@/components/dashboard/chat-panel";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { AppHeader } from "@/components/v2/app-header";
 
 export const metadata: Metadata = {
   title: "Analytics — LailaTov",
@@ -73,81 +72,19 @@ export default async function AnalyticsPage() {
   const hasData = data.outcomes.length > 0;
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Analytics nav */}
-      <nav
-        aria-label="Analytics navigation"
-        className="border-b border-border bg-card"
-      >
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          <div className="flex items-center gap-6">
-            <Link
-              href="/"
-              className="text-lg font-medium tracking-tight text-foreground"
-            >
-              LailaTov
-            </Link>
-            <span className="text-muted-foreground">/</span>
-            <span className="text-sm font-medium text-foreground">
-              Analytics
-            </span>
-          </div>
+    <div className="flex min-h-screen flex-col bg-background">
+      <AppHeader showBrand />
 
-          <div className="flex items-center gap-4">
-            <Link
-              href="/chat"
-              className="rounded-md border border-border px-4 py-2 text-sm text-foreground transition-colors hover:bg-muted"
-            >
-              Back to Chat
-            </Link>
-            <ThemeToggle />
-            <span className="text-sm text-muted-foreground">
-              {user.name || user.email}
-            </span>
-            {user.image && (
-              <Image
-                src={user.image}
-                alt={`${user.name || "User"} avatar`}
-                width={32}
-                height={32}
-                className="rounded-full"
-              />
-            )}
-            <form
-              action={async () => {
-                "use server";
-                await signOut({ redirectTo: "/" });
-              }}
-            >
-              <button
-                type="submit"
-                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Sign out
-              </button>
-            </form>
-          </div>
-        </div>
-      </nav>
-
-      <main className="mx-auto max-w-7xl px-6 py-8">
+      <main className="mx-auto w-full max-w-7xl px-6 py-8">
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight">
-              Welcome back, {user.name?.split(" ")[0] || "developer"}
-            </h1>
-            <p className="mt-2 text-muted-foreground">
-              Your autonomous code factory is{" "}
-              {hasData ? "running" : "ready to start"}.
-            </p>
-          </div>
-          <Link
-            href="/chat"
-            className="rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Open Tasks
-          </Link>
+        <div className="mb-8">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Welcome back, {user.name?.split(" ")[0] || "developer"}
+          </h1>
+          <p className="mt-2 text-muted-foreground">
+            Your autonomous code factory is{" "}
+            {hasData ? "running" : "ready to start"}.
+          </p>
         </div>
 
         {/* Stats overview */}

@@ -90,7 +90,7 @@ export default function ThreadsPage() {
 
   return (
     <div className="bg-background flex h-screen flex-col">
-      <AppHeader showBackButton backHref="/chat" title="All Threads">
+      <AppHeader showBrand>
         <Button
           variant="outline"
           size="sm"
