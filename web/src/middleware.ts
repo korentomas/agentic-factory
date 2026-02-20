@@ -6,18 +6,23 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   // Protected routes — redirect to login if unauthenticated
-  if (pathname.startsWith("/dashboard") && !isAuthenticated) {
+  const isProtected =
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/chat") ||
+    pathname.startsWith("/analytics");
+
+  if (isProtected && !isAuthenticated) {
     return NextResponse.redirect(new URL("/login", req.nextUrl.origin));
   }
 
   // Redirect authenticated users away from login page
   if (pathname === "/login" && isAuthenticated) {
-    return NextResponse.redirect(new URL("/dashboard", req.nextUrl.origin));
+    return NextResponse.redirect(new URL("/chat", req.nextUrl.origin));
   }
 
   return NextResponse.next();
 });
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login"],
+  matcher: ["/dashboard/:path*", "/chat/:path*", "/analytics", "/login"],
 };

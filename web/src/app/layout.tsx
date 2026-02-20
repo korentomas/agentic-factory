@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
+import { ThemeProvider } from "@/components/theme-provider";
+import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,7 +13,7 @@ export const metadata: Metadata = {
   description:
     "A codebase that never sleeps. Connect your repo, assign issues, wake up to reviewed PRs.",
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL || "https://lailatov.dev"
+    process.env.NEXT_PUBLIC_SITE_URL || "https://lailatov.dev",
   ),
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
@@ -41,15 +43,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){var t=localStorage.getItem('theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t)}else if(window.matchMedia('(prefers-color-scheme:dark)').matches){document.documentElement.setAttribute('data-theme','dark')}})()`,
-          }}
-        />
-      </head>
-      <body>{children}</body>
+    <html
+      lang="en"
+      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      suppressHydrationWarning
+    >
+      <body>
+        <ThemeProvider defaultTheme="system" storageKey="theme">
+          <NuqsAdapter>{children}</NuqsAdapter>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

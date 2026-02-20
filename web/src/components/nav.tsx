@@ -34,7 +34,7 @@ export function Nav() {
           </Link>
           <ThemeToggle />
           <Link
-            href="/dashboard"
+            href="/chat"
             className="rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-4)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
           >
             Dashboard

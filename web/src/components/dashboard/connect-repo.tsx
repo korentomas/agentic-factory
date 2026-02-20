@@ -127,7 +127,7 @@ export function ConnectRepo({ repoCount = 0, hasRunner = false, syncError }: Con
 
       {allPrereqsDone && (
         <Link
-          href="/dashboard/tasks"
+          href="/chat"
           className="mt-[var(--space-6)] inline-block rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-6)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
         >
           Create your first task

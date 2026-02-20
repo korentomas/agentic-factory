@@ -63,7 +63,7 @@ export function MobileMenu() {
                 <span className="text-[var(--text-sm)] text-[var(--color-text-muted)]">Theme</span>
               </div>
               <Link
-                href="/dashboard"
+                href="/chat"
                 onClick={() => setOpen(false)}
                 className="mt-[var(--space-2)] rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-3)] py-[var(--space-3)] text-center text-[var(--text-sm)] text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
               >

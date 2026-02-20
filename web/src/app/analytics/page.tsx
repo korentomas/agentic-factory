@@ -20,7 +20,7 @@ import { ChatPanel } from "@/components/dashboard/chat-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export const metadata: Metadata = {
-  title: "Dashboard",
+  title: "Analytics — LailaTov",
 };
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ async function checkRunnerHealth(): Promise<boolean> {
   }
 }
 
-export default async function Dashboard() {
+export default async function AnalyticsPage() {
   const session = await auth();
 
   if (!session?.user) {
@@ -57,7 +57,7 @@ export default async function Dashboard() {
       const result = await syncGitHubRepos(session.user.id, accessToken);
       syncError = result.error;
     } catch (err) {
-      console.error("[dashboard] syncGitHubRepos threw:", err);
+      console.error("[analytics] syncGitHubRepos threw:", err);
       syncError = "sync_exception";
     }
   }
@@ -72,20 +72,32 @@ export default async function Dashboard() {
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)]">
-      {/* Dashboard nav */}
+      {/* Analytics nav */}
       <nav
-        aria-label="Dashboard navigation"
+        aria-label="Analytics navigation"
         className="border-b border-[var(--color-border)] bg-[var(--color-bg-surface)]"
       >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-[var(--space-6)]">
-          <Link
-            href="/"
-            className="text-[var(--text-lg)] font-medium tracking-tight text-[var(--color-text)]"
-          >
-            LailaTov
-          </Link>
+          <div className="flex items-center gap-[var(--space-6)]">
+            <Link
+              href="/"
+              className="text-[var(--text-lg)] font-medium tracking-tight text-[var(--color-text)]"
+            >
+              LailaTov
+            </Link>
+            <span className="text-[var(--color-text-muted)]">/</span>
+            <span className="text-[var(--text-sm)] font-medium text-[var(--color-text)]">
+              Analytics
+            </span>
+          </div>
 
           <div className="flex items-center gap-[var(--space-4)]">
+            <Link
+              href="/chat"
+              className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] px-[var(--space-4)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text)] transition-colors hover:bg-[var(--color-bg-secondary)]"
+            >
+              Back to Chat
+            </Link>
             <ThemeToggle />
             <span className="text-[var(--text-sm)] text-[var(--color-text-secondary)]">
               {user.name || user.email}
