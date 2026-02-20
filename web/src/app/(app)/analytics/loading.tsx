@@ -1,27 +1,11 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { AppHeader } from "@/components/v2/app-header";
 
 export default function AnalyticsLoading() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      {/* Header skeleton */}
-      <div className="border-b border-border bg-card px-4 py-2">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-6 w-6 rounded" />
-          <Skeleton className="h-5 w-24" />
-          <div className="hidden items-center gap-2 md:flex">
-            <Skeleton className="h-5 w-14 rounded-md" />
-            <Skeleton className="h-5 w-16 rounded-md" />
-            <Skeleton className="h-5 w-18 rounded-md" />
-            <Skeleton className="h-5 w-16 rounded-md" />
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Skeleton className="h-6 w-6 rounded" />
-            <Skeleton className="h-6 w-6 rounded-full" />
-          </div>
-        </div>
-      </div>
+      <AppHeader showBrand />
 
-      {/* Content */}
       <main className="mx-auto w-full max-w-7xl px-6 py-8">
         {/* Title */}
         <div className="mb-8">

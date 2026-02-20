@@ -2,18 +2,16 @@
 
 import { useState, useMemo } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import useSWR from "swr";
-import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
-  Settings,
   BookOpen,
   CheckCircle2,
   Circle,
   ExternalLink,
   ArrowUp,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -27,7 +25,6 @@ import { AppHeader } from "./app-header";
 import { Toaster } from "sonner";
 import { toThreadMetadata, fetcher } from "./thread-data";
 import type { TaskThreadRow } from "./thread-data";
-import NextLink from "next/link";
 
 const GITHUB_APP_INSTALL_URL =
   "https://github.com/apps/agentfactory-bot/installations/new";
@@ -35,24 +32,6 @@ const GITHUB_APP_INSTALL_URL =
 /* ------------------------------------------------------------------ */
 /*  Header utility buttons                                            */
 /* ------------------------------------------------------------------ */
-
-function OpenSettingsButton() {
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger
-          asChild
-          className="hover:bg-accent hover:text-accent-foreground size-6 rounded-md p-1 hover:cursor-pointer"
-        >
-          <NextLink href="/chat/settings">
-            <Settings className="size-4" />
-          </NextLink>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Settings</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
 
 function OpenDocumentationButton() {
   return (
@@ -204,7 +183,6 @@ function EmptyThreadState({ logoSrc }: { logoSrc: string }) {
 /* ------------------------------------------------------------------ */
 
 export function DefaultView() {
-  const router = useRouter();
   const { resolvedTheme } = useTheme();
   const logoSrc = resolvedTheme === "dark" ? "/logo-dark.png" : "/logo.png";
   const [quickActionPrompt, setQuickActionPrompt] = useState("");
@@ -235,7 +213,6 @@ export function DefaultView() {
 
       <AppHeader showBrand>
         <OpenDocumentationButton />
-        <OpenSettingsButton />
       </AppHeader>
 
       {/* Main Content */}
@@ -261,14 +238,12 @@ export function DefaultView() {
               <h2 className="text-foreground text-base font-semibold">
                 Recent & Running Threads
               </h2>
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-border text-muted-foreground hover:text-foreground h-7 text-xs"
-                onClick={() => router.push("/chat/threads")}
+              <Link
+                href="/chat/threads"
+                className="border-border text-muted-foreground hover:text-foreground inline-flex h-7 items-center rounded-md border px-3 text-xs transition-colors"
               >
                 View All
-              </Button>
+              </Link>
             </div>
 
             {threadsLoading || threads.length > 0 ? (

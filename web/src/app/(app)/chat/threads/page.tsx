@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Search, Filter, Plus } from "lucide-react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ThreadCard, ThreadCardLoading } from "@/components/v2/thread-card";
 import { AppHeader } from "@/components/v2/app-header";
 import { toThreadMetadata, fetcher } from "@/components/v2/thread-data";
@@ -27,7 +27,6 @@ const FILTER_STATUSES: FilterStatus[] = [
 ];
 
 export default function ThreadsPage() {
-  const router = useRouter();
   const { data, isLoading } = useSWR<{ threads: TaskThreadRow[] }>(
     "/api/tasks",
     fetcher,
@@ -91,15 +90,13 @@ export default function ThreadsPage() {
   return (
     <div className="bg-background flex h-screen flex-col">
       <AppHeader showBrand>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          onClick={() => router.push("/chat")}
+        <Link
+          href="/chat"
+          className="border-border inline-flex h-8 items-center gap-1.5 rounded-md border bg-transparent px-3 text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <Plus className="h-3.5 w-3.5" />
           New Task
-        </Button>
+        </Link>
         <span className="text-muted-foreground text-xs">
           {filteredThreads.length} thread{filteredThreads.length !== 1 ? "s" : ""}
         </span>
@@ -214,15 +211,13 @@ export default function ThreadsPage() {
                     : "No threads match the selected filter"}
               </div>
               {threads.length === 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-4"
-                  onClick={() => router.push("/chat")}
+                <Link
+                  href="/chat"
+                  className="border-border mt-4 inline-flex items-center rounded-md border bg-transparent px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
                 >
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   Create your first task
-                </Button>
+                </Link>
               )}
             </div>
           )}

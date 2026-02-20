@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { ArrowLeft, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,7 +45,6 @@ export function AppHeader({
   className,
   children,
 }: AppHeaderProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const { resolvedTheme } = useTheme();
   const logoSrc = resolvedTheme === "dark" ? "/logo-dark.png" : "/logo.png";
@@ -64,14 +63,13 @@ export function AppHeader({
     >
       <div className="flex items-center gap-3">
         {showBackButton && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:bg-muted hover:text-foreground h-8 w-8 p-0"
-            onClick={() => router.push(backHref)}
+          <Link
+            href={backHref}
+            className="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-8 w-8 items-center justify-center rounded-md"
+            aria-label="Go back"
           >
             <ArrowLeft className="h-4 w-4" />
-          </Button>
+          </Link>
         )}
 
         {showBrand && (
@@ -130,6 +128,7 @@ export function AppHeader({
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0 md:hidden"
+                  aria-label="Open navigation menu"
                 >
                   <Menu className="h-4 w-4" />
                 </Button>
