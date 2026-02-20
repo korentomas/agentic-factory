@@ -16,6 +16,27 @@ export interface SyncResult {
   error?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Debounce guard: skip sync if we ran for this user within the last 5 minutes
+// ---------------------------------------------------------------------------
+const syncTimestamps = new Map<string, number>();
+const SYNC_DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Debounced wrapper around syncGitHubRepos.
+ * If the user was synced within the last 5 minutes, this is a no-op.
+ */
+export async function syncGitHubReposDebounced(
+  userId: string,
+  accessToken?: string | null,
+): Promise<void> {
+  const now = Date.now();
+  const last = syncTimestamps.get(userId) ?? 0;
+  if (now - last < SYNC_DEBOUNCE_MS) return;
+  syncTimestamps.set(userId, now);
+  await syncGitHubRepos(userId, accessToken as string);
+}
+
 /**
  * Sync GitHub App installations and their repositories for the authenticated user.
  * Uses the user's OAuth access token to discover installations and repos,

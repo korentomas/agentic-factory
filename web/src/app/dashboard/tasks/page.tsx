@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { auth } from "@/lib/auth";
 import { getTaskThreads, getRepositories } from "@/lib/db/queries";
-import { syncGitHubRepos } from "@/lib/github/sync-repos";
+import { syncGitHubReposDebounced } from "@/lib/github/sync-repos";
 import { TasksPageClient } from "./tasks-client";
 
 export const metadata: Metadata = { title: "Tasks — LailaTov" };
@@ -12,19 +13,21 @@ export default async function TasksPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  // Sync repos from GitHub App installations
-  try {
-    const syncResult = await syncGitHubRepos(session.user.id, session.accessToken);
-    if (syncResult.error) {
-      console.error("[tasks] repo sync issue:", syncResult.error);
+  const userId = session.user.id;
+  const accessToken = session.accessToken;
+
+  // Fire-and-forget: sync runs AFTER HTML is sent to the client
+  after(async () => {
+    try {
+      await syncGitHubReposDebounced(userId, accessToken);
+    } catch (err) {
+      console.error("[tasks] syncGitHubRepos threw:", err);
     }
-  } catch (err) {
-    console.error("[tasks] syncGitHubRepos threw:", err);
-  }
+  });
 
   const [threads, repos] = await Promise.all([
-    getTaskThreads(session.user.id),
-    getRepositories(session.user.id),
+    getTaskThreads(userId),
+    getRepositories(userId),
   ]);
 
   const repoOptions = repos.map((r) => ({

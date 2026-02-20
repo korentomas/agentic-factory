@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
 import { auth, signOut } from "@/lib/auth";
 import { loadDashboardData } from "@/lib/data";
 import { getRepositories } from "@/lib/db/queries";
-import { syncGitHubRepos } from "@/lib/github/sync-repos";
+import { syncGitHubReposDebounced } from "@/lib/github/sync-repos";
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { PRTable } from "@/components/dashboard/pr-table";
 import { EngineBreakdownPanel } from "@/components/dashboard/engine-breakdown";
@@ -50,22 +51,23 @@ export default async function AnalyticsPage() {
   const user = session.user;
   const accessToken = session.accessToken;
 
-  // Sync repos from GitHub App installations
-  let syncError: string | undefined;
-  if (session.user.id) {
-    try {
-      const result = await syncGitHubRepos(session.user.id, accessToken);
-      syncError = result.error;
-    } catch (err) {
-      console.error("[analytics] syncGitHubRepos threw:", err);
-      syncError = "sync_exception";
-    }
+  const userId = session.user.id;
+
+  // Fire-and-forget: sync runs AFTER HTML is sent to the client
+  if (userId) {
+    after(async () => {
+      try {
+        await syncGitHubReposDebounced(userId, accessToken);
+      } catch (err) {
+        console.error("[analytics] syncGitHubRepos threw:", err);
+      }
+    });
   }
 
   // Load dashboard data and check setup status in parallel
   const [data, repos, runnerOk] = await Promise.all([
     loadDashboardData(accessToken),
-    session.user.id ? getRepositories(session.user.id) : Promise.resolve([]),
+    userId ? getRepositories(userId) : Promise.resolve([]),
     checkRunnerHealth(),
   ]);
   const hasData = data.outcomes.length > 0;
@@ -177,7 +179,7 @@ export default async function AnalyticsPage() {
               ) : (
                 <>
                   <section className="mb-8">
-                    <ConnectRepo repoCount={repos.length} hasRunner={runnerOk} syncError={syncError} />
+                    <ConnectRepo repoCount={repos.length} hasRunner={runnerOk} />
                   </section>
                   <section>
                     <h2 className="text-xl font-medium">
