@@ -61,7 +61,8 @@ export function ConnectRepo({ repoCount = 0, hasRunner = false, syncError }: Con
     {
       label: "Create your first task",
       done: false,
-      description: "Go to Tasks and describe what you want built",
+      description:
+        "Describe a task in Chat, or open a GitHub issue — we pick it up automatically",
     },
   ];
 

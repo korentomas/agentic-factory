@@ -57,8 +57,9 @@ export function GitHubInstallationBanner({
               : "Connect your repositories"}
           </h3>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Install our GitHub App to grant access to your repositories and
-            enable autonomous development.
+            Install our GitHub App to connect your repos. After that,
+            create tasks here or open GitHub issues — we pick them up
+            automatically.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
