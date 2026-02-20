@@ -3,7 +3,15 @@
 import { useState, useMemo } from "react";
 import useSWR from "swr";
 import { useRouter } from "next/navigation";
-import { Archive, Settings, BookOpen } from "lucide-react";
+import { useTheme } from "next-themes";
+import {
+  Settings,
+  BookOpen,
+  CheckCircle2,
+  Circle,
+  ExternalLink,
+  ArrowUp,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -14,12 +22,18 @@ import {
 import { ThreadCard, ThreadCardLoading } from "./thread-card";
 import { TerminalInput } from "./terminal-input";
 import { QuickActions } from "./quick-actions";
-import { GitHubInstallationBanner } from "../github/installation-banner";
 import { AppHeader } from "./app-header";
 import { Toaster } from "sonner";
 import { toThreadMetadata, fetcher } from "./thread-data";
 import type { TaskThreadRow } from "./thread-data";
 import NextLink from "next/link";
+
+const GITHUB_APP_INSTALL_URL =
+  "https://github.com/apps/agentfactory-bot/installations/new";
+
+/* ------------------------------------------------------------------ */
+/*  Header utility buttons                                            */
+/* ------------------------------------------------------------------ */
 
 function OpenSettingsButton() {
   return (
@@ -61,12 +75,138 @@ function OpenDocumentationButton() {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Onboarding checklist (replaces GitHubInstallationBanner)          */
+/* ------------------------------------------------------------------ */
+
+interface OnboardingStep {
+  label: string;
+  done: boolean;
+  description: string;
+  action?: { label: string; href: string };
+}
+
+function OnboardingChecklist({ hasThreads }: { hasThreads: boolean }) {
+  const steps: OnboardingStep[] = [
+    {
+      label: "Sign in with GitHub",
+      done: true, // always true if they see this component
+      description: "Authenticated via GitHub OAuth",
+    },
+    {
+      label: "Install the GitHub App",
+      done: false,
+      description: "Grant access to your repositories",
+      action: { label: "Install", href: GITHUB_APP_INSTALL_URL },
+    },
+    {
+      label: "Create your first task",
+      done: hasThreads,
+      description: hasThreads
+        ? "You're all set!"
+        : "Describe a task below, or open a GitHub issue",
+    },
+  ];
+
+  const completedCount = steps.filter((s) => s.done).length;
+  const progressPct = Math.round((completedCount / steps.length) * 100);
+
+  return (
+    <div className="border-border bg-card rounded-xl border p-5 shadow-sm">
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-foreground text-base font-semibold">
+            Get started
+          </h2>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {completedCount} of {steps.length} steps complete
+          </p>
+        </div>
+
+        {/* Progress bar */}
+        <div className="bg-muted h-2 w-28 overflow-hidden rounded-full">
+          <div
+            className="bg-primary h-full rounded-full transition-all duration-300"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Steps */}
+      <ol className="mt-4 space-y-3">
+        {steps.map((step, i) => (
+          <li key={i} className="flex items-start gap-3">
+            {step.done ? (
+              <CheckCircle2 className="text-primary mt-0.5 size-5 shrink-0" />
+            ) : (
+              <Circle className="text-muted-foreground mt-0.5 size-5 shrink-0" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-sm font-medium ${
+                    step.done
+                      ? "text-foreground"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {step.label}
+                </span>
+                {step.action && !step.done && (
+                  <a
+                    href={step.action.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium transition-colors"
+                  >
+                    {step.action.label}
+                    <ExternalLink className="size-3" />
+                  </a>
+                )}
+              </div>
+              <p className="text-muted-foreground text-xs">{step.description}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Empty thread state                                                */
+/* ------------------------------------------------------------------ */
+
+function EmptyThreadState({ logoSrc }: { logoSrc: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-10">
+      <img
+        src={logoSrc}
+        alt="LailaTov"
+        className="h-12 w-12 opacity-60"
+        style={{ imageRendering: "pixelated" }}
+      />
+      <p className="text-muted-foreground text-center text-sm">
+        Your first autonomous task is one description away
+      </p>
+      <ArrowUp className="text-muted-foreground/40 size-4 animate-bounce" />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  DefaultView                                                       */
+/* ------------------------------------------------------------------ */
+
 interface DefaultViewProps {
   hasRepos: boolean;
 }
 
 export function DefaultView({ hasRepos }: DefaultViewProps) {
   const router = useRouter();
+  const { resolvedTheme } = useTheme();
+  const logoSrc = resolvedTheme === "dark" ? "/logo-dark.png" : "/logo.png";
   const [quickActionPrompt, setQuickActionPrompt] = useState("");
 
   const { data, isLoading } = useSWR<{ threads: TaskThreadRow[] }>(
@@ -88,10 +228,6 @@ export function DefaultView({ hasRepos }: DefaultViewProps) {
       <Toaster />
 
       <AppHeader showBrand>
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground text-xs">ready</span>
-          <div className="h-1.5 w-1.5 rounded-full bg-green-500 dark:bg-green-600" />
-        </div>
         <OpenDocumentationButton />
         <OpenSettingsButton />
       </AppHeader>
@@ -99,9 +235,12 @@ export function DefaultView({ hasRepos }: DefaultViewProps) {
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl space-y-6 p-4">
-          <GitHubInstallationBanner hasRepos={hasRepos} />
+          {/* Onboarding checklist -- shown only when repos are not connected */}
+          {!hasRepos && (
+            <OnboardingChecklist hasThreads={threads.length > 0} />
+          )}
 
-          {/* Terminal Input — hero element */}
+          {/* Terminal Input -- hero element */}
           <div className="pt-8">
             <TerminalInput
               placeholder="Describe your coding task or ask a question..."
@@ -141,12 +280,7 @@ export function DefaultView({ hasRepos }: DefaultViewProps) {
                 ))}
               </div>
             ) : (
-              <div className="flex items-center justify-center py-8">
-                <span className="text-muted-foreground flex items-center gap-2">
-                  <Archive className="size-4" />
-                  <span className="text-sm">No threads yet</span>
-                </span>
-              </div>
+              <EmptyThreadState logoSrc={logoSrc} />
             )}
           </div>
 
