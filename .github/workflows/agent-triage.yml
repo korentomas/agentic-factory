@@ -10,7 +10,7 @@ name: Agent Triage
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, labeled]
   issue_comment:
     types: [created]
 
@@ -18,13 +18,15 @@ jobs:
   triage:
     name: "Triage: Evaluate Issue"
     # Run when:
-    # 1. Issue is labeled "ai-agent" (new ticket), OR
-    # 2. A comment is posted on an issue with "needs-clarification" label
+    # 1. A new issue is opened (automatic pickup), OR
+    # 2. Issue is labeled "ai-agent" (manual trigger for existing issues), OR
+    # 3. A comment is posted on an issue with "needs-clarification" label
     #    (someone answered a clarification question)
     if: |
       !startsWith(github.head_ref || github.ref_name, 'selfheal-') &&
       (
-        (github.event_name == 'issues' && github.event.label.name == 'ai-agent') ||
+        (github.event_name == 'issues' && github.event.action == 'opened') ||
+        (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'ai-agent') ||
         (github.event_name == 'issue_comment' &&
          contains(github.event.issue.labels.*.name, 'needs-clarification') &&
          github.event.comment.user.login != 'agentfactory-bot[bot]')
@@ -47,6 +49,22 @@ jobs:
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: React with eyes to acknowledge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # React to the issue itself
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/reactions" \
+            --method POST -f content=eyes 2>/dev/null || true
+          # If triggered by a comment reply, also react to that comment
+          if [ "${EVENT_NAME}" = "issue_comment" ] && [ -n "${COMMENT_ID}" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}/reactions" \
+              --method POST -f content=eyes 2>/dev/null || true
+          fi
 
       - uses: actions/checkout@v4
         with:
@@ -273,7 +291,7 @@ jobs:
 
           gh issue comment "${ISSUE_NUMBER}" \
             --repo "${{ github.repository }}" \
-            --body "🤖 **AgentFactory** picked this up. Working on it now.
+            --body "👀 **LailaTov** picked this up. Working on it now.
 
           - Risk tier: \`${RISK}\`
           - Complexity: \`${COMPLEXITY}\`
@@ -361,7 +379,7 @@ jobs:
 
           gh issue comment "${ISSUE_NUMBER}" \
             --repo "${{ github.repository }}" \
-            --body "🤔 **AgentFactory** needs a quick clarification before starting.
+            --body "🤔 **LailaTov** needs a quick clarification before starting.
 
           **Question:** ${QUESTION}
 
@@ -370,4 +388,4 @@ jobs:
           ${WHY:+**Why this matters:** ${WHY}}
 
           ---
-          *Reply to this comment to clarify, then re-add the \`ai-agent\` label. Or if my assumption is correct, just re-add the label and I'll proceed with it.*"
+          *Just reply to this comment and I'll pick it up automatically. Or if my assumption is correct, just add the \`ai-agent\` label and I'll proceed with it.*"
