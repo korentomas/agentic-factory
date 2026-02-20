@@ -1,21 +1,28 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useState, Dispatch, SetStateAction } from "react";
+import { useEffect, useState, useCallback, Dispatch, SetStateAction } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ArrowUp, Loader2 } from "lucide-react";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { ArrowUp, Check, ChevronsUpDown, GitBranch, Loader2, Shield } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import useSWR from "swr";
-import type { RepoOption } from "./types";
+import { cn } from "@/lib/utils";
+import type { RepoOption, BranchOption } from "./types";
 
 interface TerminalInputProps {
   placeholder?: string;
@@ -25,6 +32,8 @@ interface TerminalInputProps {
 }
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+const SELECTED_REPO_KEY = "lailatov_selected_repo";
 
 function slugify(text: string): string {
   return text
@@ -43,14 +52,66 @@ export function TerminalInput({
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [selectedRepo, setSelectedRepo] = useState("");
-  const [branch, setBranch] = useState("");
+  const [selectedBranch, setSelectedBranch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [repoOpen, setRepoOpen] = useState(false);
+  const [branchOpen, setBranchOpen] = useState(false);
 
   const { data: repoData } = useSWR<{ repos: RepoOption[] }>(
     "/api/repos",
     fetcher,
   );
   const repos = repoData?.repos ?? [];
+
+  // Parse owner/repo for branch API
+  const [owner, repo] = selectedRepo ? selectedRepo.split("/") : [null, null];
+  const { data: branchData, isLoading: branchesLoading } = useSWR<{
+    defaultBranch: string;
+    branches: BranchOption[];
+  }>(
+    owner && repo ? `/api/repos/${owner}/${repo}/branches` : null,
+    fetcher,
+  );
+  const branches = branchData?.branches ?? [];
+  const defaultBranch = branchData?.defaultBranch ?? "";
+
+  // Auto-select repo: restore from localStorage or pick first
+  useEffect(() => {
+    if (repos.length === 0 || selectedRepo) return;
+
+    const stored = localStorage.getItem(SELECTED_REPO_KEY);
+    if (stored && repos.some((r) => r.fullName === stored)) {
+      setSelectedRepo(stored);
+    } else {
+      setSelectedRepo(repos[0].fullName);
+      localStorage.setItem(SELECTED_REPO_KEY, repos[0].fullName);
+    }
+  }, [repos, selectedRepo]);
+
+  // Auto-select default branch when branches load or repo changes
+  useEffect(() => {
+    if (branches.length === 0) return;
+
+    // If current selection exists in new branch list, keep it
+    if (selectedBranch && branches.some((b) => b.name === selectedBranch)) {
+      return;
+    }
+
+    // Select default branch, or first branch as fallback
+    const target = defaultBranch || branches[0].name;
+    setSelectedBranch(target);
+  }, [branches, defaultBranch, selectedBranch]);
+
+  // Persist repo selection
+  const handleRepoSelect = useCallback(
+    (fullName: string) => {
+      setSelectedRepo(fullName);
+      setSelectedBranch(""); // Reset branch when repo changes
+      localStorage.setItem(SELECTED_REPO_KEY, fullName);
+      setRepoOpen(false);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (quickActionPrompt && message !== quickActionPrompt) {
@@ -73,11 +134,13 @@ export function TerminalInput({
 
     setLoading(true);
 
-    const repo = repos.find((r) => r.fullName === selectedRepo);
-    const repoUrl = repo?.url ?? `https://github.com/${selectedRepo}`;
+    const repoObj = repos.find((r) => r.fullName === selectedRepo);
+    const repoUrl = repoObj?.url ?? `https://github.com/${selectedRepo}`;
     const title = trimmed.slice(0, 120);
     const taskBranch =
-      branch.trim() || `lailatov/${slugify(title)}-${Date.now().toString(36)}`;
+      selectedBranch === defaultBranch || !selectedBranch
+        ? `lailatov/${slugify(title)}-${Date.now().toString(36)}`
+        : selectedBranch;
 
     try {
       const res = await fetch("/api/tasks/create", {
@@ -86,6 +149,7 @@ export function TerminalInput({
         body: JSON.stringify({
           repoUrl,
           branch: taskBranch,
+          baseBranch: selectedBranch || defaultBranch || "main",
           title,
           description: trimmed,
         }),
@@ -102,9 +166,8 @@ export function TerminalInput({
 
       const { threadId } = await res.json();
       setMessage("");
-      setBranch("");
       router.push(`/chat/${threadId}`);
-    } catch (err) {
+    } catch {
       toast.error("Network error — could not create task", {
         richColors: true,
         closeButton: true,
@@ -136,35 +199,113 @@ export function TerminalInput({
 
       {/* Secondary row: repo + branch + send */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Select value={selectedRepo} onValueChange={setSelectedRepo}>
-          <SelectTrigger
-            size="sm"
-            className="border-border bg-background/50 h-7 w-auto min-w-[160px] text-xs"
-          >
-            <SelectValue placeholder="Select repo" />
-          </SelectTrigger>
-          <SelectContent>
-            {repos.length === 0 ? (
-              <SelectItem value="__none" disabled>
-                No repos connected
-              </SelectItem>
-            ) : (
-              repos.map((repo) => (
-                <SelectItem key={repo.fullName} value={repo.fullName}>
-                  {repo.fullName}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
+        {/* Repo selector — searchable combobox */}
+        <Popover open={repoOpen} onOpenChange={setRepoOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={repoOpen}
+              className="border-border bg-background/50 h-7 w-auto min-w-[160px] justify-between px-2 text-xs font-normal"
+            >
+              <span className="truncate">
+                {selectedRepo || "Select repo..."}
+              </span>
+              <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[280px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder="Search repos..." className="text-xs" />
+              <CommandList>
+                <CommandEmpty>No repos found.</CommandEmpty>
+                <CommandGroup>
+                  {repos.map((r) => (
+                    <CommandItem
+                      key={r.fullName}
+                      value={r.fullName}
+                      onSelect={handleRepoSelect}
+                      className="text-xs"
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-3 w-3",
+                          selectedRepo === r.fullName
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                      />
+                      {r.fullName}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
 
-        <input
-          type="text"
-          value={branch}
-          onChange={(e) => setBranch(e.target.value)}
-          placeholder="branch (auto)"
-          className="border-border bg-background/50 text-foreground placeholder:text-muted-foreground h-7 rounded-md border px-2 text-xs outline-none"
-        />
+        {/* Branch selector — searchable dropdown */}
+        <Popover open={branchOpen} onOpenChange={setBranchOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={branchOpen}
+              disabled={!selectedRepo || branchesLoading}
+              className="border-border bg-background/50 h-7 w-auto min-w-[140px] justify-between px-2 text-xs font-normal"
+            >
+              <GitBranch className="mr-1 h-3 w-3 shrink-0 opacity-70" />
+              <span className="truncate">
+                {branchesLoading
+                  ? "Loading..."
+                  : selectedBranch || "Select branch..."}
+              </span>
+              <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[240px] p-0" align="start">
+            <Command>
+              <CommandInput
+                placeholder="Search branches..."
+                className="text-xs"
+              />
+              <CommandList>
+                <CommandEmpty>No branches found.</CommandEmpty>
+                <CommandGroup>
+                  {branches.map((b) => (
+                    <CommandItem
+                      key={b.name}
+                      value={b.name}
+                      onSelect={(val) => {
+                        setSelectedBranch(val);
+                        setBranchOpen(false);
+                      }}
+                      className="text-xs"
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-3 w-3",
+                          selectedBranch === b.name
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                      />
+                      <span className="truncate">{b.name}</span>
+                      {b.isDefault && (
+                        <span className="ml-auto rounded bg-blue-500/10 px-1 py-0.5 text-[10px] text-blue-500">
+                          default
+                        </span>
+                      )}
+                      {b.protected && (
+                        <Shield className="ml-1 h-3 w-3 text-amber-500" />
+                      )}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
 
         <div className="ml-auto flex items-center gap-3">
           <span className="text-muted-foreground text-xs">

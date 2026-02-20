@@ -53,3 +53,9 @@ export interface RepoOption {
   url: string;
   installationId?: number;
 }
+
+export interface BranchOption {
+  name: string;
+  protected: boolean;
+  isDefault: boolean;
+}
