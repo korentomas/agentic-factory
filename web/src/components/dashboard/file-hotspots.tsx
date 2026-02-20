@@ -12,25 +12,25 @@ export function FileHotspotsPanel({
   const maxAppearances = Math.max(...hotspots.map((h) => h.appearances), 1);
 
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-6)]">
-      <h3 className="text-[var(--text-base)] font-medium">File Hotspots</h3>
-      <p className="mt-[var(--space-1)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
+    <div className="rounded-lg border border-border bg-card p-6">
+      <h3 className="text-base font-medium">File Hotspots</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
         Most frequently changed files across agent tasks
       </p>
 
-      <div className="mt-[var(--space-6)] space-y-[var(--space-2)]">
+      <div className="mt-6 space-y-2">
         {hotspots.slice(0, 10).map((hotspot) => (
           <div
             key={hotspot.path}
-            className="flex items-center gap-[var(--space-3)]"
+            className="flex items-center gap-3"
           >
             <div className="min-w-0 flex-1">
-              <p className="truncate font-mono text-[var(--text-xs)]">
+              <p className="truncate font-mono text-xs">
                 {hotspot.path}
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-[var(--space-2)]">
-              <div className="flex h-2 w-20 overflow-hidden rounded-full bg-[var(--color-bg-secondary)]">
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="flex h-2 w-20 overflow-hidden rounded-full bg-muted">
                 <div
                   className="bg-[var(--color-success)]"
                   style={{
@@ -44,7 +44,7 @@ export function FileHotspotsPanel({
                   }}
                 />
               </div>
-              <span className="w-6 text-right text-[var(--text-xs)] text-[var(--color-text-muted)]">
+              <span className="w-6 text-right text-xs text-muted-foreground">
                 {hotspot.appearances}
               </span>
             </div>

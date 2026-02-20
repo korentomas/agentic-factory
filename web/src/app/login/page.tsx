@@ -9,16 +9,16 @@ export const metadata: Metadata = {
 export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <div className="w-full max-w-sm rounded-[var(--radius-xl)] bg-[var(--color-bg-surface)] p-[var(--space-12)] shadow-[var(--shadow-md)]">
-        <h1 className="text-center text-[var(--text-2xl)] font-semibold tracking-tight">
+      <div className="w-full max-w-sm rounded-xl bg-card p-12 shadow-md">
+        <h1 className="text-center text-2xl font-semibold tracking-tight">
           Welcome to LailaTov
         </h1>
-        <p className="mt-[var(--space-3)] text-center text-[var(--text-sm)] text-[var(--color-text-secondary)]">
+        <p className="mt-3 text-center text-sm text-muted-foreground">
           Sign in with GitHub to connect your repositories.
         </p>
 
         <form
-          className="mt-[var(--space-8)]"
+          className="mt-8"
           action={async () => {
             "use server";
             await signIn("github", { redirectTo: "/dashboard" });
@@ -26,7 +26,7 @@ export default function LoginPage() {
         >
           <button
             type="submit"
-            className="flex w-full items-center justify-center gap-[var(--space-3)] rounded-[var(--radius-md)] bg-[var(--color-text)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-text-secondary)]"
+            className="flex w-full items-center justify-center gap-3 rounded-md bg-foreground px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-muted-foreground"
           >
             <svg
               className="h-5 w-5"
@@ -44,18 +44,18 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-[var(--space-6)] text-center text-[var(--text-xs)] text-[var(--color-text-muted)]">
+        <p className="mt-6 text-center text-xs text-muted-foreground">
           By signing in, you agree to our{" "}
           <Link
             href="/terms"
-            className="underline hover:text-[var(--color-text-secondary)]"
+            className="underline hover:text-muted-foreground"
           >
             Terms of Service
           </Link>{" "}
           and{" "}
           <Link
             href="/privacy"
-            className="underline hover:text-[var(--color-text-secondary)]"
+            className="underline hover:text-muted-foreground"
           >
             Privacy Policy
           </Link>

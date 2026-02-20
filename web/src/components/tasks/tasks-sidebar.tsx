@@ -39,11 +39,11 @@ const STEP_ICONS: Record<
   },
   in_progress: {
     icon: Play,
-    color: "text-[var(--color-accent)]",
+    color: "text-primary",
   },
   pending: {
     icon: Circle,
-    color: "text-[var(--color-text-muted)]",
+    color: "text-muted-foreground",
   },
   skipped: {
     icon: SkipForward,
@@ -87,7 +87,7 @@ export function TasksSidebar({ open, onClose, plans }: TasksSidebarProps) {
       {/* Panel */}
       <div
         className={cn(
-          "fixed top-0 right-0 z-50 flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-[var(--shadow-lg)] transition-transform sm:w-96",
+          "fixed top-0 right-0 z-50 flex h-full w-80 flex-col border-l border-border bg-card shadow-lg transition-transform sm:w-96",
           open ? "translate-x-0" : "translate-x-full",
         )}
         style={{
@@ -96,15 +96,15 @@ export function TasksSidebar({ open, onClose, plans }: TasksSidebarProps) {
         }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-[var(--space-4)] py-[var(--space-3)]">
-          <h2 className="text-[var(--text-sm)] font-medium text-[var(--color-text)]">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h2 className="text-sm font-medium text-foreground">
             Task Plan
           </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close sidebar"
-            className="rounded-[var(--radius-sm)] p-[var(--space-1)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text)]"
+            className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
@@ -112,17 +112,17 @@ export function TasksSidebar({ open, onClose, plans }: TasksSidebarProps) {
 
         {/* Revision navigation */}
         {hasMultipleRevisions && currentPlan && (
-          <div className="flex items-center justify-between border-b border-[var(--color-border)] px-[var(--space-4)] py-[var(--space-2)]">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2">
             <button
               type="button"
               onClick={() => setRevisionIndex(Math.max(0, revisionIndex - 1))}
               disabled={revisionIndex === 0}
               aria-label="Previous revision"
-              className="rounded-[var(--radius-sm)] p-[var(--space-1)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-secondary)] disabled:opacity-40"
+              className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-muted disabled:opacity-40"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <p className="text-[var(--text-xs)] text-[var(--color-text-muted)]">
+            <p className="text-xs text-muted-foreground">
               Revision {currentPlan.revision} of {plans.length}
             </p>
             <button
@@ -132,7 +132,7 @@ export function TasksSidebar({ open, onClose, plans }: TasksSidebarProps) {
               }
               disabled={revisionIndex === plans.length - 1}
               aria-label="Next revision"
-              className="rounded-[var(--radius-sm)] p-[var(--space-1)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-secondary)] disabled:opacity-40"
+              className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-muted disabled:opacity-40"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -140,17 +140,17 @@ export function TasksSidebar({ open, onClose, plans }: TasksSidebarProps) {
         )}
 
         {/* Filters */}
-        <div className="flex gap-[var(--space-1)] border-b border-[var(--color-border)] px-[var(--space-4)] py-[var(--space-2)]">
+        <div className="flex gap-1 border-b border-border px-4 py-2">
           {FILTERS.map((f) => (
             <button
               key={f.key}
               type="button"
               onClick={() => setFilter(f.key)}
               className={cn(
-                "rounded-full px-[var(--space-3)] py-[var(--space-1)] text-[var(--text-xs)] font-medium transition-colors",
+                "rounded-full px-3 py-1 text-xs font-medium transition-colors",
                 filter === f.key
-                  ? "bg-[var(--color-accent)] text-[var(--color-text-inverse)]"
-                  : "bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]",
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:text-foreground",
               )}
             >
               {f.label}
@@ -159,15 +159,15 @@ export function TasksSidebar({ open, onClose, plans }: TasksSidebarProps) {
         </div>
 
         {/* Step list */}
-        <div className="flex-1 overflow-y-auto px-[var(--space-4)] py-[var(--space-3)]">
+        <div className="flex-1 overflow-y-auto px-4 py-3">
           {!currentPlan && (
-            <p className="py-[var(--space-8)] text-center text-[var(--text-sm)] text-[var(--color-text-muted)]">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               No plan yet
             </p>
           )}
 
           {filteredSteps.length === 0 && currentPlan && (
-            <p className="py-[var(--space-8)] text-center text-[var(--text-sm)] text-[var(--color-text-muted)]">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               No steps match this filter
             </p>
           )}
@@ -179,16 +179,16 @@ export function TasksSidebar({ open, onClose, plans }: TasksSidebarProps) {
             return (
               <div
                 key={i}
-                className="flex gap-[var(--space-3)] py-[var(--space-3)]"
+                className="flex gap-3 py-3"
               >
                 <StepIcon
                   className={cn("mt-0.5 h-4 w-4 shrink-0", stepConfig.color)}
                 />
                 <div className="min-w-0">
-                  <p className="text-[var(--text-sm)] font-medium text-[var(--color-text)]">
+                  <p className="text-sm font-medium text-foreground">
                     {step.title}
                   </p>
-                  <p className="mt-[var(--space-1)] text-[var(--text-xs)] leading-relaxed text-[var(--color-text-muted)]">
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     {step.description}
                   </p>
                 </div>
@@ -199,8 +199,8 @@ export function TasksSidebar({ open, onClose, plans }: TasksSidebarProps) {
 
         {/* Footer */}
         {currentPlan && (
-          <div className="border-t border-[var(--color-border)] px-[var(--space-4)] py-[var(--space-3)]">
-            <p className="text-[var(--text-xs)] text-[var(--color-text-muted)]">
+          <div className="border-t border-border px-4 py-3">
+            <p className="text-xs text-muted-foreground">
               Created by{" "}
               <span className="font-mono">{currentPlan.createdBy}</span>{" "}
               &middot;{" "}

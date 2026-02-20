@@ -38,7 +38,7 @@ export function DashboardTabs({ children }: DashboardTabsProps) {
       <div
         role="tablist"
         aria-label="Dashboard sections"
-        className="mb-[var(--space-6)] flex gap-[var(--space-1)] overflow-x-auto border-b border-[var(--color-border)]"
+        className="mb-6 flex gap-1 overflow-x-auto border-b border-border"
       >
         {TABS.map((tab) => {
           const isActive = tab.id === activeTab;
@@ -50,10 +50,10 @@ export function DashboardTabs({ children }: DashboardTabsProps) {
               aria-controls={`tabpanel-${tab.id}`}
               id={`tab-${tab.id}`}
               onClick={() => handleTabClick(tab.id)}
-              className={`whitespace-nowrap border-b-2 px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] font-medium transition-colors ${
+              className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
                 isActive
-                  ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-                  : "border-transparent text-[var(--color-text-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-text-secondary)]"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:border-border hover:text-muted-foreground"
               }`}
             >
               {tab.label}

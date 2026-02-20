@@ -42,8 +42,8 @@ interface ThreadViewProps {
 }
 
 const STATUS_BADGE: Record<string, { label: string; color: string }> = {
-  pending: { label: "Pending", color: "bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)]" },
-  running: { label: "Running", color: "bg-[var(--color-accent)]/10 text-[var(--color-accent)]" },
+  pending: { label: "Pending", color: "bg-muted text-muted-foreground" },
+  running: { label: "Running", color: "bg-primary/10 text-primary" },
   committing: { label: "Committing", color: "bg-[var(--color-info)]/10 text-[var(--color-info)]" },
   complete: { label: "Complete", color: "bg-[var(--color-success)]/10 text-[var(--color-success)]" },
   failed: { label: "Failed", color: "bg-[var(--color-error)]/10 text-[var(--color-error)]" },
@@ -141,39 +141,39 @@ export function ThreadView({
   return (
     <div>
       {/* Header bar */}
-      <div className="mb-[var(--space-6)] flex flex-wrap items-center gap-[var(--space-3)]">
+      <div className="mb-6 flex flex-wrap items-center gap-3">
         <Link
           href="/dashboard/tasks"
-          className="rounded-[var(--radius-md)] p-[var(--space-2)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text)]"
+          className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           aria-label="Back to tasks"
         >
           <ArrowLeft className="h-5 w-5" />
         </Link>
 
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[var(--text-xl)] font-semibold text-[var(--color-text)]">
+          <h1 className="truncate text-xl font-semibold text-foreground">
             {threadStatus?.title ?? initialThread.title}
           </h1>
-          <div className="mt-[var(--space-1)] flex flex-wrap items-center gap-[var(--space-3)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
-            <span className="inline-flex items-center gap-[var(--space-1)]">
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
               <GitBranch className="h-3 w-3" />
               <span className="font-mono">{initialThread.branch}</span>
             </span>
 
             {(threadStatus?.engine ?? initialThread.engine) && (
-              <span className="rounded-full border border-[var(--color-border-strong)] bg-[var(--color-bg-secondary)] px-[var(--space-2)] py-0.5 font-mono text-[10px]">
+              <span className="rounded-full border border-border bg-muted px-2 py-0.5 font-mono text-[10px]">
                 {threadStatus?.engine ?? initialThread.engine}
               </span>
             )}
 
             {commitSha && (
-              <span className="inline-flex items-center gap-[var(--space-1)]">
+              <span className="inline-flex items-center gap-1">
                 <GitCommit className="h-3 w-3" />
                 <span className="font-mono">{commitSha.slice(0, 7)}</span>
               </span>
             )}
 
-            <span className="inline-flex items-center gap-[var(--space-1)]">
+            <span className="inline-flex items-center gap-1">
               <DollarSign className="h-3 w-3" />
               {formatCost(costUsd)}
             </span>
@@ -183,10 +183,10 @@ export function ThreadView({
         </div>
 
         {/* Status badge */}
-        <div className="flex items-center gap-[var(--space-3)]">
+        <div className="flex items-center gap-3">
           <span
             className={cn(
-              "inline-flex items-center gap-[var(--space-1)] rounded-full px-[var(--space-3)] py-[var(--space-1)] text-[var(--text-xs)] font-medium",
+              "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium",
               badge.color,
             )}
           >
@@ -198,7 +198,7 @@ export function ThreadView({
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="rounded-[var(--radius-md)] p-[var(--space-2)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text)]"
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               aria-label="Open task plan"
             >
               <ListChecks className="h-5 w-5" />
@@ -209,7 +209,7 @@ export function ThreadView({
 
       {/* Progress bar */}
       {latestPlan && latestPlan.steps.length > 0 && (
-        <div className="mb-[var(--space-6)]">
+        <div className="mb-6">
           <TaskProgressBar
             steps={latestPlan.steps}
             onStepClick={() => setSidebarOpen(true)}
@@ -218,24 +218,24 @@ export function ThreadView({
       )}
 
       {/* Main content: messages + manager chat */}
-      <div className="flex gap-[var(--space-6)]">
+      <div className="flex gap-6">
         {/* Message stream */}
         <div className="min-w-0 flex-1">
-          <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)]">
+          <div className="rounded-lg border border-border bg-card">
             {/* Stream header */}
-            <div className="flex items-center justify-between border-b border-[var(--color-border)] px-[var(--space-4)] py-[var(--space-3)]">
-              <p className="text-[var(--text-sm)] font-medium text-[var(--color-text)]">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <p className="text-sm font-medium text-foreground">
                 Execution Log
               </p>
-              <div className="flex items-center gap-[var(--space-2)]">
+              <div className="flex items-center gap-2">
                 {isConnected && isRunning && (
-                  <span className="flex items-center gap-[var(--space-1)] text-[var(--text-xs)] text-[var(--color-accent)]">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
+                  <span className="flex items-center gap-1 text-xs text-primary">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
                     Live
                   </span>
                 )}
                 {isComplete && (
-                  <span className="text-[var(--text-xs)] text-[var(--color-text-muted)]">
+                  <span className="text-xs text-muted-foreground">
                     Finished
                   </span>
                 )}
@@ -245,16 +245,16 @@ export function ThreadView({
             {/* Messages */}
             <div className="max-h-[600px] overflow-y-auto">
               {messages.length === 0 && (
-                <div className="flex items-center justify-center py-[var(--space-12)]">
+                <div className="flex items-center justify-center py-12">
                   {isRunning ? (
                     <div className="text-center">
-                      <Loader2 className="mx-auto h-8 w-8 animate-spin text-[var(--color-accent)]" />
-                      <p className="mt-[var(--space-3)] text-[var(--text-sm)] text-[var(--color-text-muted)]">
+                      <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+                      <p className="mt-3 text-sm text-muted-foreground">
                         Waiting for agent output...
                       </p>
                     </div>
                   ) : (
-                    <p className="text-[var(--text-sm)] text-[var(--color-text-muted)]">
+                    <p className="text-sm text-muted-foreground">
                       No messages yet.
                     </p>
                   )}
@@ -278,11 +278,11 @@ export function ThreadView({
 
           {/* Error message */}
           {threadStatus?.errorMessage && (
-            <div className="mt-[var(--space-4)] rounded-[var(--radius-lg)] border border-[var(--color-error)]/20 bg-[var(--color-error)]/5 px-[var(--space-4)] py-[var(--space-3)]">
-              <p className="text-[var(--text-sm)] font-medium text-[var(--color-error)]">
+            <div className="mt-4 rounded-lg border border-[var(--color-error)]/20 bg-[var(--color-error)]/5 px-4 py-3">
+              <p className="text-sm font-medium text-[var(--color-error)]">
                 Error
               </p>
-              <p className="mt-[var(--space-1)] text-[var(--text-sm)] text-[var(--color-text-secondary)]">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {threadStatus.errorMessage}
               </p>
             </div>
@@ -291,7 +291,7 @@ export function ThreadView({
 
         {/* Manager chat (hidden on mobile) */}
         <div className="hidden w-80 shrink-0 lg:block">
-          <div className="sticky top-[var(--space-4)]" style={{ height: "calc(100vh - 300px)" }}>
+          <div className="sticky top-4" style={{ height: "calc(100vh - 300px)" }}>
             <ManagerChat
               threadId={threadId}
               messages={managerMessages}

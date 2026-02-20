@@ -24,7 +24,7 @@ function OutcomeBadge({ outcome }: { outcome: PRDetail["outcome"] }) {
 
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-[var(--space-2)] py-0.5 text-[var(--text-xs)] font-medium ${styles[outcome] || ""}`}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${styles[outcome] || ""}`}
     >
       {labels[outcome] || outcome}
     </span>
@@ -35,11 +35,11 @@ function RiskBadge({ tier }: { tier: PRDetail["riskTier"] }) {
   const styles: Record<string, string> = {
     high: "text-[var(--color-error)]",
     medium: "text-[var(--color-warning)]",
-    low: "text-[var(--color-text-muted)]",
+    low: "text-muted-foreground",
   };
 
   return (
-    <span className={`text-[var(--text-xs)] font-medium uppercase ${styles[tier]}`}>
+    <span className={`text-xs font-medium uppercase ${styles[tier]}`}>
       {tier}
     </span>
   );
@@ -49,7 +49,7 @@ function CheckDot({ status }: { status: "success" | "failure" | "skipped" }) {
   const colors: Record<string, string> = {
     success: "bg-[var(--color-success)]",
     failure: "bg-[var(--color-error)]",
-    skipped: "bg-[var(--color-text-muted)]/30",
+    skipped: "bg-muted-foreground/30",
   };
 
   return (
@@ -89,10 +89,10 @@ export function PRTable({ prs }: PRTableProps) {
 
   if (prs.length === 0) {
     return (
-      <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border-strong)] p-[var(--space-12)] text-center">
-        <p className="text-[var(--color-text-muted)]">
+      <div className="rounded-lg border border-dashed border-border p-12 text-center">
+        <p className="text-muted-foreground">
           No PRs yet. Label a GitHub issue with{" "}
-          <code className="rounded bg-[var(--color-bg-secondary)] px-[var(--space-2)] py-[var(--space-1)] font-mono text-[var(--text-sm)]">
+          <code className="rounded bg-muted px-2 py-1 font-mono text-sm">
             ai-agent
           </code>{" "}
           to get started.
@@ -103,80 +103,80 @@ export function PRTable({ prs }: PRTableProps) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-left text-[var(--text-sm)]">
+      <table className="w-full text-left text-sm">
         <thead>
-          <tr className="border-b border-[var(--color-border-strong)]">
-            <th className="pb-[var(--space-3)] font-medium text-[var(--color-text-muted)]">
+          <tr className="border-b border-border">
+            <th className="pb-3 font-medium text-muted-foreground">
               PR
             </th>
-            <th className="pb-[var(--space-3)] font-medium text-[var(--color-text-muted)]">
+            <th className="pb-3 font-medium text-muted-foreground">
               Status
             </th>
-            <th className="hidden pb-[var(--space-3)] font-medium text-[var(--color-text-muted)] md:table-cell">
+            <th className="hidden pb-3 font-medium text-muted-foreground md:table-cell">
               Risk
             </th>
-            <th className="hidden pb-[var(--space-3)] font-medium text-[var(--color-text-muted)] md:table-cell">
+            <th className="hidden pb-3 font-medium text-muted-foreground md:table-cell">
               Engine
             </th>
-            <th className="hidden pb-[var(--space-3)] font-medium text-[var(--color-text-muted)] lg:table-cell">
+            <th className="hidden pb-3 font-medium text-muted-foreground lg:table-cell">
               Checks
             </th>
-            <th className="hidden pb-[var(--space-3)] font-medium text-[var(--color-text-muted)] lg:table-cell">
+            <th className="hidden pb-3 font-medium text-muted-foreground lg:table-cell">
               Files
             </th>
-            <th className="pb-[var(--space-3)] text-right font-medium text-[var(--color-text-muted)]">
+            <th className="pb-3 text-right font-medium text-muted-foreground">
               When
             </th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-[var(--color-border)]">
+        <tbody className="divide-y divide-border">
           {prs.map((pr) => (
             <Fragment key={pr.number}>
               <tr
-                className="cursor-pointer transition-colors hover:bg-[var(--color-bg-secondary)]"
+                className="cursor-pointer transition-colors hover:bg-muted"
                 onClick={() =>
                   setExpanded(expanded === pr.number ? null : pr.number)
                 }
               >
-                <td className="py-[var(--space-3)]">
+                <td className="py-3">
                   <a
                     href={pr.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-medium text-[var(--color-accent)] hover:underline"
+                    className="font-medium text-primary hover:underline"
                     onClick={(e) => e.stopPropagation()}
                   >
                     #{pr.number}
                   </a>
-                  <span className="ml-[var(--space-2)] text-[var(--color-text)]">
+                  <span className="ml-2 text-foreground">
                     {pr.title}
                   </span>
                 </td>
-                <td className="py-[var(--space-3)]">
+                <td className="py-3">
                   <OutcomeBadge outcome={pr.outcome} />
                 </td>
-                <td className="hidden py-[var(--space-3)] md:table-cell">
+                <td className="hidden py-3 md:table-cell">
                   <RiskBadge tier={pr.riskTier} />
                 </td>
-                <td className="hidden py-[var(--space-3)] md:table-cell">
-                  <span className="text-[var(--color-text-secondary)]">
+                <td className="hidden py-3 md:table-cell">
+                  <span className="text-muted-foreground">
                     {pr.engine}
                   </span>
                 </td>
-                <td className="hidden py-[var(--space-3)] lg:table-cell">
-                  <div className="flex items-center gap-[var(--space-1)]">
+                <td className="hidden py-3 lg:table-cell">
+                  <div className="flex items-center gap-1">
                     <CheckDot status={pr.checksStatus.gate} />
                     <CheckDot status={pr.checksStatus.tests} />
                     <CheckDot status={pr.checksStatus.review} />
                     <CheckDot status={pr.checksStatus.spec_audit} />
                   </div>
                 </td>
-                <td className="hidden py-[var(--space-3)] lg:table-cell">
-                  <span className="text-[var(--color-text-muted)]">
+                <td className="hidden py-3 lg:table-cell">
+                  <span className="text-muted-foreground">
                     {pr.filesChanged.length}
                   </span>
                 </td>
-                <td className="py-[var(--space-3)] text-right text-[var(--color-text-muted)]">
+                <td className="py-3 text-right text-muted-foreground">
                   {timeAgo(pr.timestamp)}
                 </td>
               </tr>
@@ -185,53 +185,53 @@ export function PRTable({ prs }: PRTableProps) {
                 <tr>
                   <td
                     colSpan={7}
-                    className="bg-[var(--color-bg-secondary)] px-[var(--space-6)] py-[var(--space-4)]"
+                    className="bg-muted px-6 py-4"
                   >
-                    <div className="grid grid-cols-2 gap-[var(--space-4)] text-[var(--text-sm)] md:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
                       <div>
-                        <p className="text-[var(--color-text-muted)]">Model</p>
-                        <p className="mt-[var(--space-1)] font-mono text-[var(--text-xs)]">
+                        <p className="text-muted-foreground">Model</p>
+                        <p className="mt-1 font-mono text-xs">
                           {pr.model}
                         </p>
                       </div>
                       <div>
-                        <p className="text-[var(--color-text-muted)]">
+                        <p className="text-muted-foreground">
                           Cost
                         </p>
-                        <p className="mt-[var(--space-1)]">
+                        <p className="mt-1">
                           {pr.cost > 0 ? `$${pr.cost.toFixed(2)}` : "N/A"}
                         </p>
                       </div>
                       <div>
-                        <p className="text-[var(--color-text-muted)]">
+                        <p className="text-muted-foreground">
                           Duration
                         </p>
-                        <p className="mt-[var(--space-1)]">
+                        <p className="mt-1">
                           {pr.duration > 0
                             ? `${Math.round(pr.duration / 1000)}s`
                             : "N/A"}
                         </p>
                       </div>
                       <div>
-                        <p className="text-[var(--color-text-muted)]">
+                        <p className="text-muted-foreground">
                           Turns
                         </p>
-                        <p className="mt-[var(--space-1)]">
+                        <p className="mt-1">
                           {pr.numTurns > 0 ? pr.numTurns : "N/A"}
                         </p>
                       </div>
                     </div>
 
                     {pr.filesChanged.length > 0 && (
-                      <div className="mt-[var(--space-4)]">
-                        <p className="text-[var(--text-xs)] text-[var(--color-text-muted)]">
+                      <div className="mt-4">
+                        <p className="text-xs text-muted-foreground">
                           Files changed
                         </p>
-                        <div className="mt-[var(--space-2)] flex flex-wrap gap-[var(--space-1)]">
+                        <div className="mt-2 flex flex-wrap gap-1">
                           {pr.filesChanged.map((f) => (
                             <span
                               key={f}
-                              className="rounded bg-[var(--color-bg)] px-[var(--space-2)] py-0.5 font-mono text-[var(--text-xs)] text-[var(--color-text-secondary)]"
+                              className="rounded bg-background px-2 py-0.5 font-mono text-xs text-muted-foreground"
                             >
                               {f}
                             </span>
@@ -240,21 +240,21 @@ export function PRTable({ prs }: PRTableProps) {
                       </div>
                     )}
 
-                    <div className="mt-[var(--space-4)] flex items-center gap-[var(--space-4)]">
-                      <div className="flex items-center gap-[var(--space-2)] text-[var(--text-xs)]">
-                        <span className="text-[var(--color-text-muted)]">
+                    <div className="mt-4 flex items-center gap-4">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-muted-foreground">
                           Gate
                         </span>
                         <CheckDot status={pr.checksStatus.gate} />
-                        <span className="text-[var(--color-text-muted)]">
+                        <span className="text-muted-foreground">
                           Tests
                         </span>
                         <CheckDot status={pr.checksStatus.tests} />
-                        <span className="text-[var(--color-text-muted)]">
+                        <span className="text-muted-foreground">
                           Review
                         </span>
                         <CheckDot status={pr.checksStatus.review} />
-                        <span className="text-[var(--color-text-muted)]">
+                        <span className="text-muted-foreground">
                           Spec Audit
                         </span>
                         <CheckDot status={pr.checksStatus.spec_audit} />

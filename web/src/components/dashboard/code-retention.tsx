@@ -7,16 +7,16 @@ export function CodeRetentionPanel({
 }) {
   if (retention.length === 0) {
     return (
-      <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-6)]">
-        <h3 className="text-[var(--text-base)] font-medium">
+      <div className="rounded-lg border border-border bg-card p-6">
+        <h3 className="text-base font-medium">
           Code Retention
         </h3>
-        <p className="mt-[var(--space-1)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
+        <p className="mt-1 text-xs text-muted-foreground">
           How much agent-written code survives in the codebase
         </p>
 
-        <div className="mt-[var(--space-6)] rounded-[var(--radius-md)] border border-dashed border-[var(--color-border-strong)] p-[var(--space-8)] text-center">
-          <p className="text-[var(--text-sm)] text-[var(--color-text-muted)]">
+        <div className="mt-6 rounded-md border border-dashed border-border p-8 text-center">
+          <p className="text-sm text-muted-foreground">
             Retention data appears after PRs are merged. Connect your GitHub
             account to see how agent code persists in your codebase.
           </p>
@@ -39,14 +39,14 @@ export function CodeRetentionPanel({
   const overallRetention = totalWritten > 0 ? totalRetained / totalWritten : 0;
 
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-6)]">
-      <h3 className="text-[var(--text-base)] font-medium">Code Retention</h3>
-      <p className="mt-[var(--space-1)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
+    <div className="rounded-lg border border-border bg-card p-6">
+      <h3 className="text-base font-medium">Code Retention</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
         How much agent-written code survives in the codebase
       </p>
 
       {/* Overall retention gauge */}
-      <div className="mt-[var(--space-6)] flex items-center gap-[var(--space-6)]">
+      <div className="mt-6 flex items-center gap-6">
         <div className="relative h-24 w-24 shrink-0">
           <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
             {/* Background circle */}
@@ -55,7 +55,7 @@ export function CodeRetentionPanel({
               cy="50"
               r="42"
               fill="none"
-              stroke="var(--color-bg-secondary)"
+              stroke="hsl(var(--muted))"
               strokeWidth="8"
             />
             {/* Retention arc */}
@@ -64,37 +64,37 @@ export function CodeRetentionPanel({
               cy="50"
               r="42"
               fill="none"
-              stroke="var(--color-accent)"
+              stroke="hsl(var(--primary))"
               strokeWidth="8"
               strokeDasharray={`${overallRetention * 264} 264`}
               strokeLinecap="round"
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-[var(--text-xl)] font-semibold">
+            <span className="text-xl font-semibold">
               {Math.round(overallRetention * 100)}%
             </span>
           </div>
         </div>
 
-        <div className="flex-1 space-y-[var(--space-2)]">
-          <div className="flex justify-between text-[var(--text-sm)]">
-            <span className="text-[var(--color-text-muted)]">Lines written by agent</span>
+        <div className="flex-1 space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Lines written by agent</span>
             <span className="font-medium">{totalWritten.toLocaleString()}</span>
           </div>
-          <div className="flex justify-between text-[var(--text-sm)]">
+          <div className="flex justify-between text-sm">
             <span className="text-[var(--color-success)]">Still in codebase</span>
             <span className="font-medium">{totalRetained.toLocaleString()}</span>
           </div>
-          <div className="flex justify-between text-[var(--text-sm)]">
-            <span className="text-[var(--color-accent)]">
+          <div className="flex justify-between text-sm">
+            <span className="text-primary">
               Overwritten by agent
             </span>
             <span className="font-medium">
               {totalOverwrittenAgent.toLocaleString()}
             </span>
           </div>
-          <div className="flex justify-between text-[var(--text-sm)]">
+          <div className="flex justify-between text-sm">
             <span className="text-[var(--color-error)]">
               Overwritten by human
             </span>
@@ -106,31 +106,31 @@ export function CodeRetentionPanel({
       </div>
 
       {/* Per-PR retention */}
-      <div className="mt-[var(--space-6)] space-y-[var(--space-3)]">
-        <h4 className="text-[var(--text-sm)] font-medium text-[var(--color-text-muted)]">
+      <div className="mt-6 space-y-3">
+        <h4 className="text-sm font-medium text-muted-foreground">
           Per-PR Breakdown
         </h4>
         {retention.map((r) => (
           <div
             key={r.prNumber}
-            className="rounded-[var(--radius-md)] bg-[var(--color-bg-secondary)] p-[var(--space-3)]"
+            className="rounded-md bg-muted p-3"
           >
             <div className="flex items-center justify-between">
               <a
                 href={r.prUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[var(--text-sm)] font-medium text-[var(--color-accent)] hover:underline"
+                className="text-sm font-medium text-primary hover:underline"
               >
                 PR #{r.prNumber}
               </a>
-              <span className="text-[var(--text-sm)] font-medium">
+              <span className="text-sm font-medium">
                 {Math.round(r.retentionRate * 100)}% retained
               </span>
             </div>
 
             {/* Stacked bar */}
-            <div className="mt-[var(--space-2)] flex h-2 overflow-hidden rounded-full bg-[var(--color-bg)]">
+            <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-background">
               {r.linesRetained > 0 && (
                 <div
                   className="bg-[var(--color-success)]"
@@ -141,7 +141,7 @@ export function CodeRetentionPanel({
               )}
               {r.overwrittenByAgent > 0 && (
                 <div
-                  className="bg-[var(--color-accent)]"
+                  className="bg-primary"
                   style={{
                     width: `${(r.overwrittenByAgent / r.linesWritten) * 100}%`,
                   }}
@@ -157,7 +157,7 @@ export function CodeRetentionPanel({
               )}
             </div>
 
-            <div className="mt-[var(--space-1)] flex gap-[var(--space-3)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
+            <div className="mt-1 flex gap-3 text-xs text-muted-foreground">
               <span>{r.linesWritten} lines</span>
               <span>{r.filesChanged.length} files</span>
             </div>
@@ -166,16 +166,16 @@ export function CodeRetentionPanel({
       </div>
 
       {/* Legend */}
-      <div className="mt-[var(--space-4)] flex flex-wrap gap-[var(--space-4)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
-        <span className="flex items-center gap-[var(--space-1)]">
+      <div className="mt-4 flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-[var(--color-success)]" />
           Retained
         </span>
-        <span className="flex items-center gap-[var(--space-1)]">
-          <span className="h-2 w-2 rounded-full bg-[var(--color-accent)]" />
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-primary" />
           Agent overwrite
         </span>
-        <span className="flex items-center gap-[var(--space-1)]">
+        <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-[var(--color-error)]" />
           Human overwrite
         </span>

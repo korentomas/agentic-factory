@@ -27,52 +27,52 @@ export function PricingCard({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-[var(--radius-xl)] p-[var(--space-8)]",
+        "flex flex-col rounded-xl p-8",
         "transition-shadow duration-[var(--duration-normal)]",
         highlighted
-          ? "bg-[var(--color-accent)] text-[var(--color-text-inverse)] shadow-[var(--shadow-lg)]"
-          : "bg-[var(--color-bg-surface)] shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)]"
+          ? "bg-primary text-primary-foreground shadow-lg"
+          : "bg-card shadow-sm hover:shadow-md"
       )}
     >
-      <div className="mb-[var(--space-6)]">
-        <h3 className="text-[var(--text-lg)] font-medium">{name}</h3>
+      <div className="mb-6">
+        <h3 className="text-lg font-medium">{name}</h3>
         <p
           className={cn(
-            "mt-[var(--space-2)] text-[var(--text-sm)]",
+            "mt-2 text-sm",
             highlighted
-              ? "text-[var(--color-text-inverse)]/70"
-              : "text-[var(--color-text-secondary)]"
+              ? "text-primary-foreground/70"
+              : "text-muted-foreground"
           )}
         >
           {description}
         </p>
       </div>
 
-      <div className="mb-[var(--space-6)]">
-        <span className="text-[var(--text-4xl)] font-semibold tracking-tight">
+      <div className="mb-6">
+        <span className="text-4xl font-semibold tracking-tight">
           {price}
         </span>
         <span
           className={cn(
-            "text-[var(--text-sm)]",
+            "text-sm",
             highlighted
-              ? "text-[var(--color-text-inverse)]/70"
-              : "text-[var(--color-text-muted)]"
+              ? "text-primary-foreground/70"
+              : "text-muted-foreground"
           )}
         >
           {period}
         </span>
       </div>
 
-      <ul className="mb-[var(--space-8)] flex-1 space-y-[var(--space-3)]">
+      <ul className="mb-8 flex-1 space-y-3">
         {features.map((feature) => (
           <li
             key={feature}
             className={cn(
-              "flex items-start gap-[var(--space-2)] text-[var(--text-sm)]",
+              "flex items-start gap-2 text-sm",
               highlighted
-                ? "text-[var(--color-text-inverse)]/90"
-                : "text-[var(--color-text-secondary)]"
+                ? "text-primary-foreground/90"
+                : "text-muted-foreground"
             )}
           >
             <span className="mt-0.5 text-[var(--color-success)]">&#10003;</span>
@@ -89,11 +89,11 @@ export function PricingCard({
         <a
           href={href}
           className={cn(
-            "block rounded-[var(--radius-md)] py-[var(--space-3)] text-center text-[var(--text-sm)] font-medium",
+            "block rounded-md py-3 text-center text-sm font-medium",
             "transition-colors duration-[var(--duration-fast)]",
             highlighted
-              ? "bg-[var(--color-bg-surface)] text-[var(--color-accent)] hover:bg-[var(--color-bg)]"
-              : "bg-[var(--color-accent)] text-[var(--color-text-inverse)] hover:bg-[var(--color-accent-hover)]"
+              ? "bg-card text-primary hover:bg-background"
+              : "bg-primary text-primary-foreground hover:bg-primary/90"
           )}
         >
           {cta}

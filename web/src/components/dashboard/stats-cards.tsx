@@ -55,17 +55,17 @@ export function StatsCards({ stats }: { stats: DashboardStats }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-[var(--space-4)] sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {cards.map(({ label, value, sub, highlight }) => (
         <div
           key={label}
-          className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-6)]"
+          className="rounded-lg border border-border bg-card p-6"
         >
-          <p className="text-[var(--text-sm)] text-[var(--color-text-muted)]">
+          <p className="text-sm text-muted-foreground">
             {label}
           </p>
           <p
-            className={`mt-[var(--space-2)] text-[var(--text-3xl)] font-semibold tracking-tight ${
+            className={`mt-2 text-3xl font-semibold tracking-tight ${
               highlight === "success"
                 ? "text-[var(--color-success)]"
                 : highlight === "warning"
@@ -77,7 +77,7 @@ export function StatsCards({ stats }: { stats: DashboardStats }) {
           >
             {value}
           </p>
-          <p className="mt-[var(--space-1)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             {sub}
           </p>
         </div>

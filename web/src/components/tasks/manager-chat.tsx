@@ -50,15 +50,15 @@ export function ManagerChat({
   );
 
   return (
-    <div className="flex h-full flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)]">
+    <div className="flex h-full flex-col rounded-lg border border-border bg-card">
       {/* Header */}
-      <div className="flex items-center gap-[var(--space-2)] border-b border-[var(--color-border)] px-[var(--space-4)] py-[var(--space-3)]">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <MessageSquare className="h-4 w-4 text-[var(--color-info)]" />
         <div>
-          <p className="text-[var(--text-sm)] font-medium text-[var(--color-text)]">
+          <p className="text-sm font-medium text-foreground">
             Manager
           </p>
-          <p className="text-[var(--text-xs)] text-[var(--color-text-muted)]">
+          <p className="text-xs text-muted-foreground">
             Guide the agent
           </p>
         </div>
@@ -67,16 +67,16 @@ export function ManagerChat({
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-[var(--space-4)] py-[var(--space-3)]"
+        className="flex-1 overflow-y-auto px-4 py-3"
       >
         {messages.length === 0 && (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
-              <MessageSquare className="mx-auto h-8 w-8 text-[var(--color-text-muted)]/40" />
-              <p className="mt-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text-muted)]">
+              <MessageSquare className="mx-auto h-8 w-8 text-muted-foreground/40" />
+              <p className="mt-2 text-sm text-muted-foreground">
                 No messages yet
               </p>
-              <p className="mt-[var(--space-1)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Send a message to interrupt or guide the running agent
               </p>
             </div>
@@ -87,22 +87,22 @@ export function ManagerChat({
           <div
             key={msg.id}
             className={cn(
-              "mb-[var(--space-3)] flex",
+              "mb-3 flex",
               msg.sender === "user" ? "justify-end" : "justify-start",
             )}
           >
             <div
               className={cn(
-                "max-w-[85%] rounded-[var(--radius-lg)] px-[var(--space-3)] py-[var(--space-2)]",
+                "max-w-[85%] rounded-lg px-3 py-2",
                 msg.sender === "user"
-                  ? "bg-[var(--color-info)]/10 text-[var(--color-text)]"
-                  : "bg-[var(--color-bg-secondary)] text-[var(--color-text)]",
+                  ? "bg-[var(--color-info)]/10 text-foreground"
+                  : "bg-muted text-foreground",
               )}
             >
-              <p className="whitespace-pre-wrap text-[var(--text-sm)] leading-relaxed">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed">
                 {msg.content}
               </p>
-              <p className="mt-[var(--space-1)] text-[10px] text-[var(--color-text-muted)]">
+              <p className="mt-1 text-[10px] text-muted-foreground">
                 {formatTime(msg.createdAt)}
               </p>
             </div>
@@ -113,9 +113,9 @@ export function ManagerChat({
       {/* Input */}
       <form
         onSubmit={handleSubmit}
-        className="border-t border-[var(--color-border)] p-[var(--space-3)]"
+        className="border-t border-border p-3"
       >
-        <div className="flex gap-[var(--space-2)]">
+        <div className="flex gap-2">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -125,13 +125,13 @@ export function ManagerChat({
                 ? "Task is not running"
                 : "Send a message to the agent..."
             }
-            className="flex-1 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none disabled:opacity-50"
+            className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
           />
           <button
             type="submit"
             disabled={!input.trim() || disabled}
             aria-label="Send message"
-            className="rounded-[var(--radius-md)] bg-[var(--color-accent)] p-[var(--space-2)] text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
+            className="rounded-md bg-primary p-2 text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             <Send className="h-4 w-4" />
           </button>

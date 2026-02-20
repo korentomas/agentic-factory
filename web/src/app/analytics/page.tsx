@@ -71,35 +71,35 @@ export default async function AnalyticsPage() {
   const hasData = data.outcomes.length > 0;
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)]">
+    <div className="min-h-screen bg-background">
       {/* Analytics nav */}
       <nav
         aria-label="Analytics navigation"
-        className="border-b border-[var(--color-border)] bg-[var(--color-bg-surface)]"
+        className="border-b border-border bg-card"
       >
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-[var(--space-6)]">
-          <div className="flex items-center gap-[var(--space-6)]">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+          <div className="flex items-center gap-6">
             <Link
               href="/"
-              className="text-[var(--text-lg)] font-medium tracking-tight text-[var(--color-text)]"
+              className="text-lg font-medium tracking-tight text-foreground"
             >
               LailaTov
             </Link>
-            <span className="text-[var(--color-text-muted)]">/</span>
-            <span className="text-[var(--text-sm)] font-medium text-[var(--color-text)]">
+            <span className="text-muted-foreground">/</span>
+            <span className="text-sm font-medium text-foreground">
               Analytics
             </span>
           </div>
 
-          <div className="flex items-center gap-[var(--space-4)]">
+          <div className="flex items-center gap-4">
             <Link
               href="/chat"
-              className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] px-[var(--space-4)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text)] transition-colors hover:bg-[var(--color-bg-secondary)]"
+              className="rounded-md border border-border px-4 py-2 text-sm text-foreground transition-colors hover:bg-muted"
             >
               Back to Chat
             </Link>
             <ThemeToggle />
-            <span className="text-[var(--text-sm)] text-[var(--color-text-secondary)]">
+            <span className="text-sm text-muted-foreground">
               {user.name || user.email}
             </span>
             {user.image && (
@@ -119,7 +119,7 @@ export default async function AnalyticsPage() {
             >
               <button
                 type="submit"
-                className="text-[var(--text-sm)] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text)]"
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 Sign out
               </button>
@@ -128,28 +128,28 @@ export default async function AnalyticsPage() {
         </div>
       </nav>
 
-      <main className="mx-auto max-w-7xl px-[var(--space-6)] py-[var(--space-8)]">
+      <main className="mx-auto max-w-7xl px-6 py-8">
         {/* Header */}
-        <div className="mb-[var(--space-8)] flex items-center justify-between">
+        <div className="mb-8 flex items-center justify-between">
           <div>
-            <h1 className="text-[var(--text-3xl)] font-semibold tracking-tight">
+            <h1 className="text-3xl font-semibold tracking-tight">
               Welcome back, {user.name?.split(" ")[0] || "developer"}
             </h1>
-            <p className="mt-[var(--space-2)] text-[var(--color-text-secondary)]">
+            <p className="mt-2 text-muted-foreground">
               Your autonomous code factory is{" "}
               {hasData ? "running" : "ready to start"}.
             </p>
           </div>
           <Link
             href="/chat"
-            className="rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
+            className="rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Open Tasks
           </Link>
         </div>
 
         {/* Stats overview */}
-        <section className="mb-[var(--space-8)]">
+        <section className="mb-8">
           <StatsCards stats={data.stats} />
         </section>
 
@@ -158,17 +158,17 @@ export default async function AnalyticsPage() {
             {{
               overview: hasData ? (
                 <>
-                  <section className="mb-[var(--space-8)]">
-                    <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
+                  <section className="mb-8">
+                    <h2 className="mb-4 text-xl font-medium">
                       Pipeline Health
                     </h2>
                     <PipelineHealth checks={data.checks} risks={data.risks} />
                   </section>
-                  <section className="mb-[var(--space-8)]">
-                    <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
+                  <section className="mb-8">
+                    <h2 className="mb-4 text-xl font-medium">
                       Code Quality
                     </h2>
-                    <div className="grid grid-cols-1 gap-[var(--space-6)] lg:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                       <CodeRetentionPanel retention={data.codeRetention} />
                       <FileHotspotsPanel hotspots={data.fileHotspots} />
                     </div>
@@ -176,24 +176,24 @@ export default async function AnalyticsPage() {
                 </>
               ) : (
                 <>
-                  <section className="mb-[var(--space-8)]">
+                  <section className="mb-8">
                     <ConnectRepo repoCount={repos.length} hasRunner={runnerOk} syncError={syncError} />
                   </section>
                   <section>
-                    <h2 className="text-[var(--text-xl)] font-medium">
+                    <h2 className="text-xl font-medium">
                       Recent activity
                     </h2>
-                    <div className="mt-[var(--space-6)] rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border-strong)] p-[var(--space-12)] text-center">
-                      <p className="text-[var(--color-text-muted)]">
+                    <div className="mt-6 rounded-lg border border-dashed border-border p-12 text-center">
+                      <p className="text-muted-foreground">
                         No tasks yet. Go to{" "}
                         <Link
                           href="/chat"
-                          className="font-medium text-[var(--color-accent)] hover:underline"
+                          className="font-medium text-primary hover:underline"
                         >
                           Chat
                         </Link>{" "}
                         to create your first task, or label a GitHub issue with{" "}
-                        <code className="rounded bg-[var(--color-bg-secondary)] px-[var(--space-2)] py-[var(--space-1)] font-mono text-[var(--text-sm)]">
+                        <code className="rounded bg-muted px-2 py-1 font-mono text-sm">
                           ai-agent
                         </code>
                         .
@@ -204,7 +204,7 @@ export default async function AnalyticsPage() {
               ),
               prs: (
                 <section>
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-6)]">
+                  <div className="rounded-lg border border-border bg-card p-6">
                     <PRTable prs={data.prs} />
                   </div>
                 </section>

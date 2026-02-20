@@ -16,19 +16,19 @@ export function ChatMessage({ role, parts }: ChatMessageProps) {
   return (
     <div
       className={cn(
-        "flex gap-[var(--space-3)] px-[var(--space-4)] py-[var(--space-3)]",
+        "flex gap-3 px-4 py-3",
         role === "user" ? "justify-end" : "justify-start",
       )}
     >
       <div
         className={cn(
-          "max-w-[80%] rounded-[var(--radius-lg)] px-[var(--space-4)] py-[var(--space-3)]",
+          "max-w-[80%] rounded-lg px-4 py-3",
           role === "user"
-            ? "bg-[var(--color-accent)] text-[var(--color-text-inverse)]"
-            : "bg-[var(--color-bg-secondary)] text-[var(--color-text)]",
+            ? "bg-primary text-primary-foreground"
+            : "bg-muted text-foreground",
         )}
       >
-        <div className="whitespace-pre-wrap text-[var(--text-sm)] leading-relaxed">
+        <div className="whitespace-pre-wrap text-sm leading-relaxed">
           {text}
         </div>
       </div>

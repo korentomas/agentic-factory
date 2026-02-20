@@ -47,11 +47,11 @@ export function CheckoutButton({
       onClick={handleClick}
       disabled={loading}
       className={cn(
-        "w-full block rounded-[var(--radius-md)] py-[var(--space-3)] text-center text-[var(--text-sm)] font-medium",
+        "w-full block rounded-md py-3 text-center text-sm font-medium",
         "transition-colors duration-[var(--duration-fast)]",
         highlighted
-          ? "bg-[var(--color-bg-surface)] text-[var(--color-accent)] hover:bg-[var(--color-bg)]"
-          : "bg-[var(--color-accent)] text-[var(--color-text-inverse)] hover:bg-[var(--color-accent-hover)]",
+          ? "bg-card text-primary hover:bg-background"
+          : "bg-primary text-primary-foreground hover:bg-primary/90",
         loading && "opacity-50 cursor-not-allowed",
         className,
       )}

@@ -13,9 +13,9 @@ interface TaskProgressBarProps {
 
 const STEP_COLORS: Record<string, string> = {
   completed: "bg-[var(--color-success)]",
-  in_progress: "bg-[var(--color-accent)] animate-pulse",
+  in_progress: "bg-primary animate-pulse",
   skipped: "bg-[var(--color-warning)]",
-  pending: "bg-[var(--color-border-strong)]",
+  pending: "bg-border",
 };
 
 export function TaskProgressBar({ steps, onStepClick }: TaskProgressBarProps) {
@@ -26,12 +26,12 @@ export function TaskProgressBar({ steps, onStepClick }: TaskProgressBarProps) {
   return (
     <div>
       {/* Label */}
-      <div className="mb-[var(--space-2)] flex items-center justify-between">
-        <p className="text-[var(--text-sm)] text-[var(--color-text-secondary)]">
-          <span className="font-medium text-[var(--color-text)]">{completed}</span>{" "}
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{completed}</span>{" "}
           of {total} steps completed
         </p>
-        <p className="text-[var(--text-xs)] font-medium text-[var(--color-text-muted)]">
+        <p className="text-xs font-medium text-muted-foreground">
           {percent}%
         </p>
       </div>

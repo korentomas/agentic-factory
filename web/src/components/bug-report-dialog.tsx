@@ -54,7 +54,7 @@ export function BugReportDialog() {
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="rounded-[var(--radius-md)] border border-[var(--color-border)] px-[var(--space-4)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+        className="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
       >
         Report a Bug
       </button>
@@ -65,22 +65,22 @@ export function BugReportDialog() {
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={handleClose}
           />
-          <div className="relative w-full max-w-lg rounded-[var(--radius-lg)] bg-[var(--color-bg)] p-[var(--space-8)] shadow-xl">
+          <div className="relative w-full max-w-lg rounded-lg bg-background p-8 shadow-xl">
             <button
               onClick={handleClose}
               aria-label="Close"
-              className="absolute right-[var(--space-4)] top-[var(--space-4)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
+              className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
             >
               ×
             </button>
 
-            <h2 className="text-[var(--text-xl)] font-semibold">
+            <h2 className="text-xl font-semibold">
               Submit Bug Report
             </h2>
 
             {status === "sent" ? (
-              <div className="mt-[var(--space-4)]">
-                <p className="text-[var(--color-text-secondary)]">
+              <div className="mt-4">
+                <p className="text-muted-foreground">
                   Bug report submitted successfully.
                 </p>
                 {issueUrl && (
@@ -88,14 +88,14 @@ export function BugReportDialog() {
                     href={issueUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-[var(--space-2)] block text-[var(--color-accent)] hover:underline"
+                    className="mt-2 block text-primary hover:underline"
                   >
                     View issue on GitHub
                   </a>
                 )}
                 <button
                   onClick={handleClose}
-                  className="mt-[var(--space-4)] rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-4)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text-inverse)]"
+                  className="mt-4 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
                 >
                   Close
                 </button>
@@ -103,12 +103,12 @@ export function BugReportDialog() {
             ) : (
               <form
                 onSubmit={handleSubmit}
-                className="mt-[var(--space-4)] space-y-[var(--space-4)]"
+                className="mt-4 space-y-4"
               >
                 <div>
                   <label
                     htmlFor="bug-title"
-                    className="block text-[var(--text-sm)] font-medium"
+                    className="block text-sm font-medium"
                   >
                     Title
                   </label>
@@ -118,14 +118,14 @@ export function BugReportDialog() {
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     required
-                    className="mt-[var(--space-1)] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)]"
+                    className="mt-1 w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm"
                     placeholder="Brief description of the bug"
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="bug-description"
-                    className="block text-[var(--text-sm)] font-medium"
+                    className="block text-sm font-medium"
                   >
                     Description
                   </label>
@@ -135,14 +135,14 @@ export function BugReportDialog() {
                     onChange={(e) => setDescription(e.target.value)}
                     required
                     rows={4}
-                    className="mt-[var(--space-1)] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)]"
+                    className="mt-1 w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm"
                     placeholder="What happened? What did you expect?"
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="bug-steps"
-                    className="block text-[var(--text-sm)] font-medium"
+                    className="block text-sm font-medium"
                   >
                     Steps to Reproduce (optional)
                   </label>
@@ -151,19 +151,19 @@ export function BugReportDialog() {
                     value={steps}
                     onChange={(e) => setSteps(e.target.value)}
                     rows={3}
-                    className="mt-[var(--space-1)] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-transparent px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)]"
+                    className="mt-1 w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm"
                     placeholder="1. Go to...\n2. Click on...\n3. See error"
                   />
                 </div>
                 {status === "error" && (
-                  <p className="text-[var(--text-sm)] text-[var(--color-error)]">
+                  <p className="text-sm text-[var(--color-error)]">
                     Failed to submit report. Please try again.
                   </p>
                 )}
                 <button
                   type="submit"
                   disabled={status === "sending"}
-                  className="w-full rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
+                  className="w-full rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                 >
                   {status === "sending" ? "Submitting..." : "Submit Report"}
                 </button>

@@ -35,28 +35,28 @@ const ROLE_CONFIG: Record<
     icon: User,
     label: "You",
     align: "right",
-    bg: "bg-[var(--color-accent)]/10",
-    avatarBg: "bg-[var(--color-accent)]",
+    bg: "bg-primary/10",
+    avatarBg: "bg-primary",
   },
   assistant: {
     icon: Bot,
     label: "Agent",
     align: "left",
-    bg: "bg-[var(--color-bg-secondary)]",
-    avatarBg: "bg-[var(--color-bg-elevated)]",
+    bg: "bg-muted",
+    avatarBg: "bg-card",
   },
   tool: {
     icon: Terminal,
     label: "Tool",
     align: "left",
-    bg: "bg-[var(--color-bg-surface)]",
-    avatarBg: "bg-[var(--color-bg-warm)]",
+    bg: "bg-card",
+    avatarBg: "bg-secondary",
   },
   system: {
     icon: Info,
     label: "System",
     align: "left",
-    bg: "bg-[var(--color-bg-warm)]",
+    bg: "bg-secondary",
     avatarBg: "bg-[var(--color-warning)]/20",
   },
   manager: {
@@ -88,41 +88,41 @@ function ToolCallContent({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)]">
+    <div className="overflow-hidden rounded-md border border-border">
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-[var(--space-2)] bg-[var(--color-bg-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-left transition-colors hover:bg-[var(--color-bg-elevated)]"
+        className="flex w-full items-center gap-2 bg-muted px-3 py-2 text-left transition-colors hover:bg-card"
       >
         {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
         )}
-        <Terminal className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
-        <span className="font-mono text-[var(--text-xs)] font-medium text-[var(--color-text)]">
+        <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="font-mono text-xs font-medium text-foreground">
           {toolName}
         </span>
       </button>
 
       {expanded && (
-        <div className="border-t border-[var(--color-border)]">
+        <div className="border-t border-border">
           {toolInput && (
-            <div className="border-b border-[var(--color-border)] px-[var(--space-3)] py-[var(--space-2)]">
-              <p className="mb-[var(--space-1)] text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+            <div className="border-b border-border px-3 py-2">
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 Input
               </p>
-              <pre className="whitespace-pre-wrap font-mono text-[var(--text-xs)] text-[var(--color-text-secondary)]">
+              <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">
                 {toolInput}
               </pre>
             </div>
           )}
           {toolOutput && (
-            <div className="px-[var(--space-3)] py-[var(--space-2)]">
-              <p className="mb-[var(--space-1)] text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+            <div className="px-3 py-2">
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 Output
               </p>
-              <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-[var(--text-xs)] text-[var(--color-text-secondary)]">
+              <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-xs text-muted-foreground">
                 {toolOutput}
               </pre>
             </div>
@@ -151,7 +151,7 @@ export function MessageRenderer({
   return (
     <div
       className={cn(
-        "flex gap-[var(--space-3)] px-[var(--space-4)] py-[var(--space-3)]",
+        "flex gap-3 px-4 py-3",
         config.align === "right" ? "flex-row-reverse" : "flex-row",
       )}
     >
@@ -166,8 +166,8 @@ export function MessageRenderer({
           className={cn(
             "h-3.5 w-3.5",
             role === "human"
-              ? "text-[var(--color-text-inverse)]"
-              : "text-[var(--color-text-secondary)]",
+              ? "text-primary-foreground"
+              : "text-muted-foreground",
           )}
         />
       </div>
@@ -175,7 +175,7 @@ export function MessageRenderer({
       {/* Content */}
       <div
         className={cn(
-          "max-w-[80%] rounded-[var(--radius-lg)] px-[var(--space-4)] py-[var(--space-3)]",
+          "max-w-[80%] rounded-lg px-4 py-3",
           config.bg,
         )}
       >
@@ -186,14 +186,14 @@ export function MessageRenderer({
             toolOutput={toolOutput ?? null}
           />
         ) : (
-          <div className="whitespace-pre-wrap text-[var(--text-sm)] leading-relaxed text-[var(--color-text)]">
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
             {content}
           </div>
         )}
 
         <p
           className={cn(
-            "mt-[var(--space-1)] text-[10px] text-[var(--color-text-muted)]",
+            "mt-1 text-[10px] text-muted-foreground",
             config.align === "right" ? "text-right" : "text-left",
           )}
         >

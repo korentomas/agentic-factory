@@ -14,38 +14,38 @@ export default async function TasksLayout({
   const user = session.user;
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)]">
+    <div className="min-h-screen bg-background">
       <nav
         aria-label="Tasks navigation"
-        className="border-b border-[var(--color-border)] bg-[var(--color-bg-surface)]"
+        className="border-b border-border bg-card"
       >
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-[var(--space-6)]">
-          <div className="flex items-center gap-[var(--space-6)]">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+          <div className="flex items-center gap-6">
             <Link
               href="/"
-              className="text-[var(--text-lg)] font-medium tracking-tight text-[var(--color-text)]"
+              className="text-lg font-medium tracking-tight text-foreground"
             >
               LailaTov
             </Link>
-            <div className="flex gap-[var(--space-1)]">
+            <div className="flex gap-1">
               <Link
                 href="/dashboard"
-                className="rounded-[var(--radius-md)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text)]"
+                className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 Dashboard
               </Link>
               <Link
                 href="/dashboard/tasks"
-                className="rounded-[var(--radius-md)] bg-[var(--color-bg-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)] font-medium text-[var(--color-text)]"
+                className="rounded-md bg-muted px-3 py-2 text-sm font-medium text-foreground"
               >
                 Tasks
               </Link>
             </div>
           </div>
 
-          <div className="flex items-center gap-[var(--space-4)]">
+          <div className="flex items-center gap-4">
             <ThemeToggle />
-            <span className="text-[var(--text-sm)] text-[var(--color-text-secondary)]">
+            <span className="text-sm text-muted-foreground">
               {user.name || user.email}
             </span>
             {user.image && (
@@ -65,7 +65,7 @@ export default async function TasksLayout({
             >
               <button
                 type="submit"
-                className="text-[var(--text-sm)] text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text)]"
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 Sign out
               </button>
@@ -74,7 +74,7 @@ export default async function TasksLayout({
         </div>
       </nav>
 
-      <main className="mx-auto max-w-7xl px-[var(--space-6)] py-[var(--space-8)]">
+      <main className="mx-auto max-w-7xl px-6 py-8">
         {children}
       </main>
     </div>

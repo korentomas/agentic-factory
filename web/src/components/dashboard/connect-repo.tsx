@@ -70,38 +70,38 @@ export function ConnectRepo({ repoCount = 0, hasRunner = false, syncError }: Con
   const allPrereqsDone = steps[0].done && steps[1].done && steps[2].done;
 
   return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-8)]">
+    <section className="rounded-lg border border-border bg-card p-8">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-[var(--text-xl)] font-medium">Get started</h2>
-          <p className="mt-[var(--space-1)] text-[var(--text-sm)] text-[var(--color-text-secondary)]">
+          <h2 className="text-xl font-medium">Get started</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             {completedCount} of {steps.length} steps complete
           </p>
         </div>
         {/* Progress bar */}
-        <div className="flex h-2 w-32 overflow-hidden rounded-full bg-[var(--color-bg-secondary)]">
+        <div className="flex h-2 w-32 overflow-hidden rounded-full bg-muted">
           <div
-            className="rounded-full bg-[var(--color-accent)] transition-all duration-300"
+            className="rounded-full bg-primary transition-all duration-300"
             style={{ width: `${(completedCount / steps.length) * 100}%` }}
           />
         </div>
       </div>
 
-      <ol className="mt-[var(--space-6)] space-y-[var(--space-4)]">
+      <ol className="mt-6 space-y-4">
         {steps.map((step, i) => (
-          <li key={i} className="flex items-start gap-[var(--space-3)]">
+          <li key={i} className="flex items-start gap-3">
             {step.done ? (
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-accent)]" />
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
             ) : (
-              <Circle className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-text-muted)]" />
+              <Circle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
             )}
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-[var(--space-2)]">
+              <div className="flex items-center gap-2">
                 <span
-                  className={`text-[var(--text-sm)] font-medium ${
+                  className={`text-sm font-medium ${
                     step.done
-                      ? "text-[var(--color-text)]"
-                      : "text-[var(--color-text-muted)]"
+                      ? "text-foreground"
+                      : "text-muted-foreground"
                   }`}
                 >
                   {step.label}
@@ -111,14 +111,14 @@ export function ConnectRepo({ repoCount = 0, hasRunner = false, syncError }: Con
                     href={step.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--color-accent)] px-[var(--space-2)] py-0.5 text-[var(--text-xs)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
+                    className="inline-flex items-center gap-1 rounded-sm bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                   >
                     Install
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 )}
               </div>
-              <p className="text-[var(--text-xs)] text-[var(--color-text-muted)]">
+              <p className="text-xs text-muted-foreground">
                 {step.description}
               </p>
             </div>
@@ -129,7 +129,7 @@ export function ConnectRepo({ repoCount = 0, hasRunner = false, syncError }: Con
       {allPrereqsDone && (
         <Link
           href="/chat"
-          className="mt-[var(--space-6)] inline-block rounded-[var(--radius-md)] bg-[var(--color-accent)] px-[var(--space-6)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--color-text-inverse)] transition-colors hover:bg-[var(--color-accent-hover)]"
+          className="mt-6 inline-block rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           Create your first task
         </Link>

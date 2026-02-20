@@ -56,17 +56,17 @@ export function TasksPageClient({ threads, repos }: TasksPageClientProps) {
   return (
     <div>
       {/* Header */}
-      <div className="mb-[var(--space-8)]">
-        <h1 className="text-[var(--text-3xl)] font-semibold tracking-tight">
+      <div className="mb-8">
+        <h1 className="text-3xl font-semibold tracking-tight">
           Tasks
         </h1>
-        <p className="mt-[var(--space-2)] text-[var(--color-text-secondary)]">
+        <p className="mt-2 text-muted-foreground">
           Create and monitor agent task executions.
         </p>
       </div>
 
       {/* Terminal input */}
-      <div className="mb-[var(--space-8)]">
+      <div className="mb-8">
         <TerminalInput
           repos={repos}
           onSubmit={handleSubmit}
@@ -76,11 +76,11 @@ export function TasksPageClient({ threads, repos }: TasksPageClientProps) {
 
       {/* Active threads */}
       {activeThreads.length > 0 && (
-        <section className="mb-[var(--space-8)]">
-          <h2 className="mb-[var(--space-4)] text-[var(--text-lg)] font-medium text-[var(--color-text)]">
+        <section className="mb-8">
+          <h2 className="mb-4 text-lg font-medium text-foreground">
             Active
           </h2>
-          <div className="grid grid-cols-1 gap-[var(--space-3)] sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {activeThreads.map((thread) => (
               <ThreadCard key={thread.id} thread={thread} />
             ))}
@@ -91,10 +91,10 @@ export function TasksPageClient({ threads, repos }: TasksPageClientProps) {
       {/* Recent threads */}
       {recentThreads.length > 0 && (
         <section>
-          <h2 className="mb-[var(--space-4)] text-[var(--text-lg)] font-medium text-[var(--color-text)]">
+          <h2 className="mb-4 text-lg font-medium text-foreground">
             Recent
           </h2>
-          <div className="grid grid-cols-1 gap-[var(--space-3)] sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {recentThreads.map((thread) => (
               <ThreadCard key={thread.id} thread={thread} />
             ))}
@@ -104,9 +104,9 @@ export function TasksPageClient({ threads, repos }: TasksPageClientProps) {
 
       {/* Empty state */}
       {threads.length === 0 && (
-        <div className="mt-[var(--space-6)] rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border-strong)] p-[var(--space-12)] text-center">
-          <Terminal className="mx-auto h-10 w-10 text-[var(--color-text-muted)]/40" />
-          <p className="mt-[var(--space-4)] text-[var(--color-text-muted)]">
+        <div className="mt-6 rounded-lg border border-dashed border-border p-12 text-center">
+          <Terminal className="mx-auto h-10 w-10 text-muted-foreground/40" />
+          <p className="mt-4 text-muted-foreground">
             No tasks yet. Describe a task above to get started.
           </p>
         </div>

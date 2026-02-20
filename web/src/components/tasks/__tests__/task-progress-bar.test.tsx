@@ -51,7 +51,7 @@ describe("TaskProgressBar", () => {
     const { container } = render(<TaskProgressBar steps={steps} />);
 
     const segment = container.querySelector("button");
-    expect(segment?.className).toContain("bg-[var(--color-success)]");
+    expect(segment?.className).toContain("bg-[var(--color-success)]"); // extended palette color, not a legacy token
   });
 
   it("calls onStepClick with correct index when clicked", async () => {

@@ -31,12 +31,12 @@ const STATUS_CONFIG: Record<
   pending: {
     icon: Clock,
     label: "Pending",
-    color: "text-[var(--color-text-muted)]",
+    color: "text-muted-foreground",
   },
   running: {
     icon: Loader2,
     label: "Running",
-    color: "text-[var(--color-accent)]",
+    color: "text-primary",
   },
   committing: {
     icon: Loader2,
@@ -100,23 +100,23 @@ export function ThreadCard({ thread }: ThreadCardProps) {
   return (
     <Link
       href={`/dashboard/tasks/${thread.id}`}
-      className="block rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-4)] shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]"
+      className="block rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md"
     >
-      <div className="flex items-start justify-between gap-[var(--space-3)]">
+      <div className="flex items-start justify-between gap-3">
         {/* Left side */}
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[var(--text-sm)] font-medium text-[var(--color-text)]">
+          <h3 className="truncate text-sm font-medium text-foreground">
             {thread.title}
           </h3>
 
-          <div className="mt-[var(--space-2)] flex flex-wrap items-center gap-[var(--space-3)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
-            <span className="inline-flex items-center gap-[var(--space-1)]">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
               <GitBranch className="h-3 w-3" />
               <span className="font-mono">{thread.branch}</span>
             </span>
 
             {thread.engine && (
-              <span className="rounded-full border border-[var(--color-border-strong)] bg-[var(--color-bg-secondary)] px-[var(--space-2)] py-0.5 font-mono text-[10px]">
+              <span className="rounded-full border border-border bg-muted px-2 py-0.5 font-mono text-[10px]">
                 {thread.engine}
               </span>
             )}
@@ -126,19 +126,19 @@ export function ThreadCard({ thread }: ThreadCardProps) {
           </div>
         </div>
 
-        {/* Right side — status */}
-        <div className={cn("flex shrink-0 items-center gap-[var(--space-1)]", config.color)}>
+        {/* Right side -- status */}
+        <div className={cn("flex shrink-0 items-center gap-1", config.color)}>
           <StatusIcon
             className={cn("h-4 w-4", isSpinning && "animate-spin")}
           />
-          <span className="text-[var(--text-xs)] font-medium">
+          <span className="text-xs font-medium">
             {config.label}
           </span>
         </div>
       </div>
 
       {/* Footer */}
-      <p className="mt-[var(--space-2)] text-[var(--text-xs)] text-[var(--color-text-muted)]">
+      <p className="mt-2 text-xs text-muted-foreground">
         {timeAgo(thread.createdAt)}
       </p>
     </Link>
