@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -28,6 +29,8 @@ export function AppHeader({
   children,
 }: AppHeaderProps) {
   const router = useRouter();
+  const { resolvedTheme } = useTheme();
+  const logoSrc = resolvedTheme === "dark" ? "/logo-dark.png" : "/logo.png";
 
   return (
     <div className={cn("border-border bg-card border-b px-4 py-2", className)}>
@@ -43,9 +46,17 @@ export function AppHeader({
           </Button>
         )}
         {showBrand && (
-          <span className="text-foreground text-base font-semibold tracking-tight">
-            LailaTov
-          </span>
+          <div className="flex items-center gap-2">
+            <img
+              src={logoSrc}
+              alt="LailaTov"
+              className="h-6 w-6"
+              style={{ imageRendering: "pixelated" }}
+            />
+            <span className="text-foreground text-base font-semibold tracking-tight">
+              LailaTov
+            </span>
+          </div>
         )}
         {title && !showBrand && (
           <h1 className="text-foreground text-lg font-semibold">{title}</h1>
