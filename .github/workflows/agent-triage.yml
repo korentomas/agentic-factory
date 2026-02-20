@@ -299,6 +299,33 @@ jobs:
 
           I'll open a draft PR when the code is ready."
 
+      - name: Register task in web dashboard
+        env:
+          WEB_URL: ${{ vars.WEB_URL || 'https://lailatov.vercel.app' }}
+          CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
+          ISSUE_NUMBER: ${{ needs.triage.outputs.issue_number }}
+          ISSUE_TITLE: ${{ needs.triage.outputs.title }}
+          RISK_TIER: ${{ needs.triage.outputs.risk_tier }}
+        run: |
+          ISSUE_BODY=$(gh issue view "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --json body -q .body)
+          ISSUE_URL="https://github.com/${{ github.repository }}/issues/${ISSUE_NUMBER}"
+          REPO_FULL_NAME="${{ github.repository }}"
+
+          # Register in the web DB (non-blocking — dispatch continues regardless)
+          curl -s -X POST "${WEB_URL}/api/tasks/from-issue" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
+            -d "$(jq -n \
+              --arg repoFullName "${REPO_FULL_NAME}" \
+              --arg issueNumber "${ISSUE_NUMBER}" \
+              --arg title "${ISSUE_TITLE}" \
+              --arg description "${ISSUE_BODY}" \
+              --arg branch "agent/cu-gh-${ISSUE_NUMBER}" \
+              --arg riskTier "${RISK_TIER}" \
+              --arg issueUrl "${ISSUE_URL}" \
+              '{repoFullName: $repoFullName, issueNumber: ($issueNumber | tonumber), title: $title, description: $description, branch: $branch, riskTier: $riskTier, issueUrl: $issueUrl}'
+            )" 2>&1 || echo "::warning::Failed to register task in web dashboard"
+
       - name: Dispatch to agent-write
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
