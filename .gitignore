@@ -19,3 +19,11 @@ data/learnings.db
 # Design plans (local only)
 docs/plans/
 .vercel
+
+# MCP/IDE skill files (auto-generated, not project code)
+.agents/
+.claude/skills/
+.cursor/
+
+# Node
+node_modules/
