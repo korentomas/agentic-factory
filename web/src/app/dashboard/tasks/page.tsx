@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getTaskThreads, getRepositories } from "@/lib/db/queries";
+import { syncGitHubRepos } from "@/lib/github/sync-repos";
 import { TasksPageClient } from "./tasks-client";
 
 export const metadata: Metadata = { title: "Tasks — LailaTov" };
@@ -10,6 +11,16 @@ export const dynamic = "force-dynamic";
 export default async function TasksPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
+
+  // Sync repos from GitHub App installations
+  try {
+    const syncResult = await syncGitHubRepos(session.user.id, session.accessToken);
+    if (syncResult.error) {
+      console.error("[tasks] repo sync issue:", syncResult.error);
+    }
+  } catch (err) {
+    console.error("[tasks] syncGitHubRepos threw:", err);
+  }
 
   const [threads, repos] = await Promise.all([
     getTaskThreads(session.user.id),

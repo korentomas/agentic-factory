@@ -1,4 +1,4 @@
-import { anthropic } from "@ai-sdk/anthropic";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { streamText, UIMessage } from "ai";
 import { auth } from "@/lib/auth";
 import { detectIntent, stripPrefix } from "@/lib/chat/intent";
@@ -6,6 +6,19 @@ import { getOrCreateChatSession, saveChatMessage } from "@/lib/db/queries";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
+
+function getModel() {
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (openrouterKey) {
+    const provider = createAnthropic({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: openrouterKey,
+    });
+    return provider("anthropic/claude-sonnet-4");
+  }
+  const provider = createAnthropic();
+  return provider("claude-sonnet-4-20250514");
+}
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -48,9 +61,9 @@ export async function POST(req: Request) {
     });
   }
 
-  // Quick path: Claude API
+  // Quick path: Claude API (supports both Anthropic direct and OpenRouter)
   const result = streamText({
-    model: anthropic("claude-sonnet-4-20250514"),
+    model: getModel(),
     system: "You are LailaTov, an AI coding assistant. You help developers understand their codebase, review code, and answer technical questions. Be concise and helpful. Use code blocks with language tags when showing code.",
     messages: messages.map((m) => ({
       role: m.role as "user" | "assistant",

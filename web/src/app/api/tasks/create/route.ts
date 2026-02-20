@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { createTaskThread, saveTaskMessage, updateTaskThread } from "@/lib/db/queries";
+import {
+  createTaskThread,
+  getRepositories,
+  saveTaskMessage,
+  updateTaskThread,
+} from "@/lib/db/queries";
 import type { RiskTier } from "@/lib/db/schema";
 
 export async function POST(req: Request) {
@@ -38,6 +43,19 @@ export async function POST(req: Request) {
     content: description,
   });
 
+  // Look up installation_id for this repo (for GitHub App token generation)
+  let installationId: number | null = null;
+  const repos = await getRepositories(session.user.id);
+  const repoFullName = repoUrl.replace("https://github.com/", "");
+  const matchedRepo = repos.find((r) => r.fullName === repoFullName);
+  if (matchedRepo) {
+    installationId = matchedRepo.installationId;
+  }
+
+  // Use the user's OAuth access token for GitHub operations.
+  // Falls back to the service-level GITHUB_TOKEN if no session token.
+  const githubToken = session.accessToken || process.env.GITHUB_TOKEN || null;
+
   // Dispatch to Agent Runner (non-blocking — thread is created regardless)
   const runnerUrl = process.env.RUNNER_API_URL;
   if (runnerUrl) {
@@ -59,7 +77,8 @@ export async function POST(req: Request) {
           engine: engine || null,
           model: model || null,
           risk_tier: riskTier || "medium",
-          github_token: process.env.GITHUB_TOKEN || null,
+          github_token: githubToken,
+          installation_id: installationId,
           callback_url: `${webUrl}/api/tasks/${thread.id}/webhook`,
         }),
       });

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { auth, signOut } from "@/lib/auth";
 import { loadDashboardData } from "@/lib/data";
+import { getRepositories } from "@/lib/db/queries";
+import { syncGitHubRepos } from "@/lib/github/sync-repos";
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { PRTable } from "@/components/dashboard/pr-table";
 import { EngineBreakdownPanel } from "@/components/dashboard/engine-breakdown";
@@ -23,6 +25,21 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
+async function checkRunnerHealth(): Promise<boolean> {
+  const runnerUrl = process.env.RUNNER_API_URL;
+  if (!runnerUrl) return false;
+  try {
+    const res = await fetch(`${runnerUrl}/health`, {
+      headers: { Authorization: `Bearer ${process.env.RUNNER_API_KEY || ""}` },
+      next: { revalidate: 0 },
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export default async function Dashboard() {
   const session = await auth();
 
@@ -32,7 +49,25 @@ export default async function Dashboard() {
 
   const user = session.user;
   const accessToken = session.accessToken;
-  const data = await loadDashboardData(accessToken);
+
+  // Sync repos from GitHub App installations
+  let syncError: string | undefined;
+  if (session.user.id) {
+    try {
+      const result = await syncGitHubRepos(session.user.id, accessToken);
+      syncError = result.error;
+    } catch (err) {
+      console.error("[dashboard] syncGitHubRepos threw:", err);
+      syncError = "sync_exception";
+    }
+  }
+
+  // Load dashboard data and check setup status in parallel
+  const [data, repos, runnerOk] = await Promise.all([
+    loadDashboardData(accessToken),
+    session.user.id ? getRepositories(session.user.id) : Promise.resolve([]),
+    checkRunnerHealth(),
+  ]);
   const hasData = data.outcomes.length > 0;
 
   return (
@@ -106,78 +141,83 @@ export default async function Dashboard() {
           <StatsCards stats={data.stats} />
         </section>
 
-        {hasData ? (
-          <Suspense fallback={null}>
-            <DashboardTabs>
-              {{
-                overview: (
-                  <>
-                    <section className="mb-[var(--space-8)]">
-                      <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
-                        Pipeline Health
-                      </h2>
-                      <PipelineHealth checks={data.checks} risks={data.risks} />
-                    </section>
-                    <section className="mb-[var(--space-8)]">
-                      <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
-                        Code Quality
-                      </h2>
-                      <div className="grid grid-cols-1 gap-[var(--space-6)] lg:grid-cols-2">
-                        <CodeRetentionPanel retention={data.codeRetention} />
-                        <FileHotspotsPanel hotspots={data.fileHotspots} />
-                      </div>
-                    </section>
-                  </>
-                ),
-                prs: (
-                  <section>
-                    <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-6)]">
-                      <PRTable prs={data.prs} />
+        <Suspense fallback={null}>
+          <DashboardTabs>
+            {{
+              overview: hasData ? (
+                <>
+                  <section className="mb-[var(--space-8)]">
+                    <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
+                      Pipeline Health
+                    </h2>
+                    <PipelineHealth checks={data.checks} risks={data.risks} />
+                  </section>
+                  <section className="mb-[var(--space-8)]">
+                    <h2 className="mb-[var(--space-4)] text-[var(--text-xl)] font-medium">
+                      Code Quality
+                    </h2>
+                    <div className="grid grid-cols-1 gap-[var(--space-6)] lg:grid-cols-2">
+                      <CodeRetentionPanel retention={data.codeRetention} />
+                      <FileHotspotsPanel hotspots={data.fileHotspots} />
                     </div>
                   </section>
-                ),
-                engines: (
-                  <section>
-                    <EngineBreakdownPanel
-                      engines={data.engines}
-                      models={data.models}
-                    />
+                </>
+              ) : (
+                <>
+                  <section className="mb-[var(--space-8)]">
+                    <ConnectRepo repoCount={repos.length} hasRunner={runnerOk} syncError={syncError} />
                   </section>
-                ),
-                learning: (
                   <section>
-                    <LearningPanel learning={data.learning} />
+                    <h2 className="text-[var(--text-xl)] font-medium">
+                      Recent activity
+                    </h2>
+                    <div className="mt-[var(--space-6)] rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border-strong)] p-[var(--space-12)] text-center">
+                      <p className="text-[var(--color-text-muted)]">
+                        No tasks yet. Go to{" "}
+                        <Link
+                          href="/dashboard/tasks"
+                          className="font-medium text-[var(--color-accent)] hover:underline"
+                        >
+                          Tasks
+                        </Link>{" "}
+                        to create your first task, or label a GitHub issue with{" "}
+                        <code className="rounded bg-[var(--color-bg-secondary)] px-[var(--space-2)] py-[var(--space-1)] font-mono text-[var(--text-sm)]">
+                          ai-agent
+                        </code>
+                        .
+                      </p>
+                    </div>
                   </section>
-                ),
-                chat: (
-                  <section>
-                    <ChatPanel />
-                  </section>
-                ),
-              }}
-            </DashboardTabs>
-          </Suspense>
-        ) : (
-          <>
-            <section className="mb-[var(--space-8)]">
-              <ConnectRepo />
-            </section>
-            <section>
-              <h2 className="text-[var(--text-xl)] font-medium">
-                Recent activity
-              </h2>
-              <div className="mt-[var(--space-6)] rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border-strong)] p-[var(--space-12)] text-center">
-                <p className="text-[var(--color-text-muted)]">
-                  No tasks yet. Label a GitHub issue with{" "}
-                  <code className="rounded bg-[var(--color-bg-secondary)] px-[var(--space-2)] py-[var(--space-1)] font-mono text-[var(--text-sm)]">
-                    ai-agent
-                  </code>{" "}
-                  to get started.
-                </p>
-              </div>
-            </section>
-          </>
-        )}
+                </>
+              ),
+              prs: (
+                <section>
+                  <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-[var(--space-6)]">
+                    <PRTable prs={data.prs} />
+                  </div>
+                </section>
+              ),
+              engines: (
+                <section>
+                  <EngineBreakdownPanel
+                    engines={data.engines}
+                    models={data.models}
+                  />
+                </section>
+              ),
+              learning: (
+                <section>
+                  <LearningPanel learning={data.learning} />
+                </section>
+              ),
+              chat: (
+                <section>
+                  <ChatPanel />
+                </section>
+              ),
+            }}
+          </DashboardTabs>
+        </Suspense>
       </main>
     </div>
   );

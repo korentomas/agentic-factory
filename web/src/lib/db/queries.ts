@@ -399,6 +399,44 @@ export async function getRepositories(
     .orderBy(desc(repositories.createdAt));
 }
 
+/** Insert or update a repository by GitHub repo ID and user. */
+export async function upsertRepository(data: {
+  userId: string;
+  githubRepoId: number;
+  fullName: string;
+  installationId: number;
+}): Promise<RepositoryRow> {
+  const existing = await db
+    .select({ id: repositories.id })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.userId, data.userId),
+        eq(repositories.githubRepoId, data.githubRepoId),
+      ),
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    const [updated] = await db
+      .update(repositories)
+      .set({
+        fullName: data.fullName,
+        installationId: data.installationId,
+        isActive: true,
+      })
+      .where(eq(repositories.id, existing[0].id))
+      .returning();
+    return updated;
+  }
+
+  const [inserted] = await db
+    .insert(repositories)
+    .values(data)
+    .returning();
+  return inserted;
+}
+
 /* ─────────────────────────────────────────────────────────
  * Upsert outcome
  * ───────────────────────────────────────────────────────── */
