@@ -203,11 +203,7 @@ function EmptyThreadState({ logoSrc }: { logoSrc: string }) {
 /*  DefaultView                                                       */
 /* ------------------------------------------------------------------ */
 
-interface DefaultViewProps {
-  hasRepos: boolean;
-}
-
-export function DefaultView({ hasRepos }: DefaultViewProps) {
+export function DefaultView() {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const logoSrc = resolvedTheme === "dark" ? "/logo-dark.png" : "/logo.png";
@@ -218,6 +214,12 @@ export function DefaultView({ hasRepos }: DefaultViewProps) {
     fetcher,
     { refreshInterval: 10_000 },
   );
+
+  const { data: reposData } = useSWR<{ repos: unknown[] }>(
+    "/api/repos",
+    fetcher,
+  );
+  const hasRepos = (reposData?.repos?.length ?? 0) > 0;
 
   const threads = useMemo(
     () => (data?.threads ?? []).map(toThreadMetadata),
