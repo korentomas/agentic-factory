@@ -87,7 +87,12 @@ jobs:
           # Get full issue data including all comments
           ISSUE_TITLE=$(gh issue view "${ISSUE_NUMBER}" --json title -q .title)
           ISSUE_BODY=$(gh issue view "${ISSUE_NUMBER}" --json body -q .body)
-          echo "title=${ISSUE_TITLE}" >> "$GITHUB_OUTPUT"
+          # Use heredoc for title in case it contains special characters
+          {
+            echo "title<<TITLE_EOF"
+            echo "${ISSUE_TITLE}"
+            echo "TITLE_EOF"
+          } >> "$GITHUB_OUTPUT"
 
           # Determine complexity from body length + structure
           BODY_LENGTH=${#ISSUE_BODY}
@@ -301,6 +306,7 @@ jobs:
 
       - name: Register task in web dashboard
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           WEB_URL: ${{ vars.WEB_URL || 'https://lailatov.vercel.app' }}
           CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
           ISSUE_NUMBER: ${{ needs.triage.outputs.issue_number }}
@@ -312,7 +318,8 @@ jobs:
           REPO_FULL_NAME="${{ github.repository }}"
 
           # Register in the web DB (non-blocking — dispatch continues regardless)
-          curl -s -X POST "${WEB_URL}/api/tasks/from-issue" \
+          HTTP_CODE=$(curl -s -o /tmp/web_response.txt -w "%{http_code}" \
+            -X POST "${WEB_URL}/api/tasks/from-issue" \
             -H "Content-Type: application/json" \
             -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
             -d "$(jq -n \
@@ -324,12 +331,20 @@ jobs:
               --arg riskTier "${RISK_TIER}" \
               --arg issueUrl "${ISSUE_URL}" \
               '{repoFullName: $repoFullName, issueNumber: ($issueNumber | tonumber), title: $title, description: $description, branch: $branch, riskTier: $riskTier, issueUrl: $issueUrl}'
-            )" 2>&1 || echo "::warning::Failed to register task in web dashboard"
+            )" 2>&1) || true
+          if [ "$HTTP_CODE" -ge 400 ] 2>/dev/null; then
+            echo "::warning::Web dashboard registration returned HTTP ${HTTP_CODE}: $(cat /tmp/web_response.txt 2>/dev/null)"
+          else
+            echo "Web dashboard registration OK (HTTP ${HTTP_CODE})"
+          fi
 
       - name: Dispatch to agent-write
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE_NUMBER: ${{ needs.triage.outputs.issue_number }}
+          TASK_ID: ${{ needs.triage.outputs.task_id }}
+          RISK_TIER: ${{ needs.triage.outputs.risk_tier }}
+          COMPLEXITY: ${{ needs.triage.outputs.complexity }}
         run: |
           # Get issue body for the dispatch payload
           ISSUE_BODY=$(gh issue view "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --json body -q .body)
@@ -352,17 +367,35 @@ jobs:
 
           CORRELATION_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
 
+          # Build dispatch payload as JSON file to safely handle special characters
+          # in issue title/body (backticks, $(), quotes, etc.)
+          jq -n \
+            --arg event_type "agent-task" \
+            --arg task_id "${TASK_ID}" \
+            --arg title "${ISSUE_TITLE}" \
+            --arg description "${FULL_DESCRIPTION}" \
+            --arg correlation_id "${CORRELATION_ID}" \
+            --arg risk_tier "${RISK_TIER}" \
+            --arg complexity "${COMPLEXITY}" \
+            --arg source "github-issue" \
+            --arg issue_number "${ISSUE_NUMBER}" \
+            '{
+              event_type: $event_type,
+              client_payload: {
+                clickup_task_id: $task_id,
+                title: $title,
+                description: $description,
+                correlation_id: $correlation_id,
+                risk_tier: $risk_tier,
+                complexity: $complexity,
+                source: $source,
+                issue_number: $issue_number
+              }
+            }' > /tmp/dispatch_payload.json
+
           gh api "repos/${{ github.repository }}/dispatches" \
             --method POST \
-            -f event_type=agent-task \
-            -f "client_payload[clickup_task_id]=${{ needs.triage.outputs.task_id }}" \
-            -f "client_payload[title]=${ISSUE_TITLE}" \
-            -f "client_payload[description]=${FULL_DESCRIPTION}" \
-            -f "client_payload[correlation_id]=${CORRELATION_ID}" \
-            -f "client_payload[risk_tier]=${{ needs.triage.outputs.risk_tier }}" \
-            -f "client_payload[complexity]=${{ needs.triage.outputs.complexity }}" \
-            -f "client_payload[source]=github-issue" \
-            -f "client_payload[issue_number]=${ISSUE_NUMBER}"
+            --input /tmp/dispatch_payload.json
 
           echo "Dispatched issue #${ISSUE_NUMBER} to agent-write"
 
@@ -416,3 +449,36 @@ jobs:
 
           ---
           *Just reply to this comment and I'll pick it up automatically. Or if my assumption is correct, just add the \`ai-agent\` label and I'll proceed with it.*"
+
+  # ── Triage failure: notify user ───────────────────────────────────────────
+  triage-failed:
+    name: "Notify: Triage Failed"
+    needs: triage
+    if: >-
+      needs.triage.result == 'failure' &&
+      needs.triage.outputs.issue_number != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Post triage failure comment
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ISSUE_NUMBER="${{ needs.triage.outputs.issue_number }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          gh issue comment "${ISSUE_NUMBER}" \
+            --repo "${{ github.repository }}" \
+            --body "⚠️ **LailaTov** encountered an error during triage.
+
+          The issue was picked up but the triage step failed. I'll still attempt to work on it, but wanted you to know.
+
+          [View workflow run](${RUN_URL})
+
+          _If this keeps happening, please add the \`ai-agent\` label to retry._"

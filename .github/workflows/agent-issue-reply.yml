@@ -8,19 +8,33 @@ jobs:
   handle-reply:
     name: "Process user reply"
     runs-on: ubuntu-latest
+    # Trigger when a non-bot comment is posted on an issue with the
+    # "needs-clarification" label (set by agent-triage.yml clarify job).
+    # Also supports legacy "awaiting-reply" label for backward compatibility.
     if: |
-      contains(github.event.issue.labels.*.name, 'awaiting-reply') &&
+      (
+        contains(github.event.issue.labels.*.name, 'needs-clarification') ||
+        contains(github.event.issue.labels.*.name, 'awaiting-reply')
+      ) &&
       github.event.comment.author_association != 'BOT' &&
       !endsWith(github.event.comment.user.login, '[bot]')
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get app token
+      - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ vars.AGENTFACTORY_APP_ID }}
-          private-key: ${{ secrets.AGENTFACTORY_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: React with eyes to acknowledge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}/reactions" \
+            --method POST -f content=eyes 2>/dev/null || true
 
       - name: Prepare issue context
         id: context
@@ -44,16 +58,19 @@ jobs:
             echo "1. Read the original issue and the user reply carefully."
             echo "2. If the reply provides enough context, proceed to work on the fix."
             echo "3. If still unclear, ask another clarification question."
-            echo "4. Remove the awaiting-reply label when you have what you need."
+            echo "4. Remove the awaiting-reply and needs-clarification labels when you have what you need."
           } > /tmp/issue_reply_context.md
 
       - name: Process reply with agent
         uses: ./.github/actions/run-agent
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
           engine: ${{ vars.TRIAGE_ENGINE || 'claude-code' }}
           prompt: |
             Read the issue context at /tmp/issue_reply_context.md and follow the instructions there.
-          model: ${{ vars.TRIAGE_MODEL || 'claude-sonnet-4-6' }}
+          model: ${{ vars.TRIAGE_MODEL || vars.CLAUDE_SONNET_MODEL || 'claude-sonnet-4-6' }}
           max_turns: "10"
           api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}

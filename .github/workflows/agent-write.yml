@@ -74,19 +74,24 @@ jobs:
 
       - name: Validate payload
         id: validate
+        env:
+          PAYLOAD_TASK_ID: ${{ github.event.client_payload.clickup_task_id }}
+          PAYLOAD_TITLE: ${{ github.event.client_payload.title }}
+          PAYLOAD_CORRELATION_ID: ${{ github.event.client_payload.correlation_id }}
+          PAYLOAD_COMPLEXITY: ${{ github.event.client_payload.complexity }}
         run: |
           # Fail fast if required fields are missing
-          if [ -z "${{ github.event.client_payload.clickup_task_id }}" ]; then
+          if [ -z "${PAYLOAD_TASK_ID}" ]; then
             echo "::error::Missing clickup_task_id in dispatch payload"
             exit 1
           fi
-          if [ -z "${{ github.event.client_payload.title }}" ]; then
+          if [ -z "${PAYLOAD_TITLE}" ]; then
             echo "::error::Missing title in dispatch payload"
             exit 1
           fi
-          echo "task_id=${{ github.event.client_payload.clickup_task_id }}" >> "$GITHUB_OUTPUT"
-          echo "correlation_id=${{ github.event.client_payload.correlation_id }}" >> "$GITHUB_OUTPUT"
-          echo "complexity=${{ github.event.client_payload.complexity }}" >> "$GITHUB_OUTPUT"
+          echo "task_id=${PAYLOAD_TASK_ID}" >> "$GITHUB_OUTPUT"
+          echo "correlation_id=${PAYLOAD_CORRELATION_ID}" >> "$GITHUB_OUTPUT"
+          echo "complexity=${PAYLOAD_COMPLEXITY}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -123,6 +128,30 @@ jobs:
         # || true: orchestrator's deps don't need to be installed in the target repo.
         # Target repos should have their own install step here.
 
+      # ── Prepare task context ──────────────────────────────────────────────
+      # Write the task description to a file so the prompt avoids inline
+      # interpolation of untrusted user content (issue body may contain
+      # backticks, $(), quotes, etc. that can break YAML or shell).
+      - name: Prepare task context
+        env:
+          TASK_TITLE: ${{ github.event.client_payload.title }}
+          TASK_DESCRIPTION: ${{ github.event.client_payload.description }}
+          TASK_RISK_TIER: ${{ github.event.client_payload.risk_tier }}
+        run: |
+          {
+            echo "# Task"
+            echo ""
+            echo "## Title"
+            echo "${TASK_TITLE}"
+            echo ""
+            echo "## Description"
+            echo "${TASK_DESCRIPTION}"
+            echo ""
+            echo "## Risk Tier"
+            echo "${TASK_RISK_TIER}"
+          } > /tmp/task_context.md
+          echo "Task context written to /tmp/task_context.md ($(wc -l < /tmp/task_context.md) lines)"
+
       # ── Plan-first protocol for complex tasks ──────────────────────────────
       # For high-complexity tickets, generate an ExecPlan (PLANS.md) before writing code.
       # This gives humans a chance to review the approach before 40 turns of code generation.
@@ -150,7 +179,8 @@ jobs:
           allowed_bots: "agentfactory-bot[bot]"
           show_full_output: "true"
           prompt: |
-            Read CLAUDE.md and ARCHITECTURE.md first.
+            FIRST: Read the task description at /tmp/task_context.md.
+            THEN: Read CLAUDE.md and ARCHITECTURE.md.
 
             Write a PLANS.md ExecPlan for this ticket. Required sections:
 
@@ -174,11 +204,6 @@ jobs:
             Exact function signatures you'll add or change. Types included.
 
             Write PLANS.md then STOP. Do not write any code yet.
-
-            ---
-            Ticket title: ${{ github.event.client_payload.title }}
-            Ticket description:
-            ${{ github.event.client_payload.description }}
 
       - name: Capture plan costs
         if: ${{ github.event.client_payload.complexity == 'high' }}
@@ -227,19 +252,13 @@ jobs:
           allowed_bots: "agentfactory-bot[bot]"
           show_full_output: "true"
           prompt: |
-            You are working on a development task from ClickUp.
+            You are working on a development task.
 
-            Read CLAUDE.md and ARCHITECTURE.md before writing any code.
+            FIRST: Read the task description at /tmp/task_context.md.
+            THEN: Read CLAUDE.md and ARCHITECTURE.md before writing any code.
             If PLANS.md exists, follow it — you wrote it in the planning step.
             If .claude/rules/patterns.md exists, read it for learned patterns.
             If .claude/rules/anti-patterns.md exists, read it for known pitfalls.
-
-            Task title: ${{ github.event.client_payload.title }}
-
-            Task description:
-            ${{ github.event.client_payload.description }}
-
-            Risk tier: ${{ github.event.client_payload.risk_tier }}
 
             Requirements:
             - Follow all patterns in CLAUDE.md exactly
@@ -286,19 +305,13 @@ jobs:
           allowed_bots: "agentfactory-bot[bot]"
           show_full_output: "true"
           prompt: |
-            You are working on a development task from ClickUp.
+            You are working on a development task.
 
-            Read CLAUDE.md and ARCHITECTURE.md before writing any code.
+            FIRST: Read the task description at /tmp/task_context.md.
+            THEN: Read CLAUDE.md and ARCHITECTURE.md before writing any code.
             If PLANS.md exists, follow it — you wrote it in the planning step.
             If .claude/rules/patterns.md exists, read it for learned patterns.
             If .claude/rules/anti-patterns.md exists, read it for known pitfalls.
-
-            Task title: ${{ github.event.client_payload.title }}
-
-            Task description:
-            ${{ github.event.client_payload.description }}
-
-            Risk tier: ${{ github.event.client_payload.risk_tier }}
 
             Requirements:
             - Follow all patterns in CLAUDE.md exactly
@@ -321,25 +334,48 @@ jobs:
           echo "write_model=$WRITE_MODEL" >> "$GITHUB_OUTPUT"
 
       - name: Commit agent changes
+        env:
+          TASK_TITLE: ${{ github.event.client_payload.title }}
+          TASK_ID: ${{ steps.validate.outputs.task_id }}
+          CORRELATION_ID: ${{ steps.validate.outputs.correlation_id }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
           git add -A
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "feat(agent): ${{ github.event.client_payload.title }}
+            git commit -m "feat(agent): ${TASK_TITLE}
 
-          Task: cu-${{ steps.validate.outputs.task_id }}
-          Correlation: ${{ steps.validate.outputs.correlation_id }}"
-            git push origin "${{ steps.branch.outputs.branch }}"
+          Task: cu-${TASK_ID}
+          Correlation: ${CORRELATION_ID}"
+            git push origin "${BRANCH}"
           fi
 
       - name: Create pull request
         id: create_pr
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_TITLE: ${{ github.event.client_payload.title }}
+          SOURCE: ${{ github.event.client_payload.source }}
+          ISSUE_NUM: ${{ github.event.client_payload.issue_number }}
+          RISK_TIER: ${{ github.event.client_payload.risk_tier }}
+          TASK_ID: ${{ steps.validate.outputs.task_id }}
+          CORRELATION_ID: ${{ steps.validate.outputs.correlation_id }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          PLAN_COST: ${{ steps.plan_cost.outputs.cost }}
+          PLAN_TURNS: ${{ steps.plan_cost.outputs.turns }}
+          PLAN_DURATION_MS: ${{ steps.plan_cost.outputs.duration }}
+          WRITE_COST: ${{ steps.write_cost.outputs.cost }}
+          WRITE_TURNS: ${{ steps.write_cost.outputs.turns }}
+          WRITE_DURATION_MS: ${{ steps.write_cost.outputs.duration }}
+          PLAN_MODEL: ${{ steps.models.outputs.plan_model }}
+          WRITE_MODEL: ${{ steps.models.outputs.write_model }}
         run: |
           # Push any remaining changes (in case agent already committed)
-          git push origin "${{ steps.branch.outputs.branch }}" || true
+          git push origin "${BRANCH}" || true
+
+          # Ensure origin/main is up-to-date for the diff comparison
+          git fetch origin main 2>/dev/null || true
 
           # Check there are actually changes to PR
           if git diff --quiet origin/main..HEAD; then
@@ -347,12 +383,8 @@ jobs:
             exit 1
           fi
 
-          TASK_ID="${{ steps.validate.outputs.task_id }}"
-          SOURCE="${{ github.event.client_payload.source }}"
-          ISSUE_NUM="${{ github.event.client_payload.issue_number }}"
-
           # Build source link based on trigger type
-          if [ "$SOURCE" = "github-issue" ] && [ -n "$ISSUE_NUM" ]; then
+          if [ "${SOURCE}" = "github-issue" ] && [ -n "${ISSUE_NUM}" ]; then
             SOURCE_LINE="**GitHub Issue:** #${ISSUE_NUM}"
             CLOSES_LINE="Closes #${ISSUE_NUM}"
           else
@@ -361,19 +393,13 @@ jobs:
           fi
 
           # Compute agent cost stats
-          PLAN_COST="${{ steps.plan_cost.outputs.cost }}"
           PLAN_COST="${PLAN_COST:-0}"
-          PLAN_TURNS="${{ steps.plan_cost.outputs.turns }}"
           PLAN_TURNS="${PLAN_TURNS:-0}"
-          PLAN_DURATION_MS="${{ steps.plan_cost.outputs.duration }}"
           PLAN_DURATION_MS="${PLAN_DURATION_MS:-0}"
           PLAN_DURATION_S=$(echo "scale=1; ${PLAN_DURATION_MS} / 1000" | bc 2>/dev/null || echo "0")
 
-          WRITE_COST="${{ steps.write_cost.outputs.cost }}"
           WRITE_COST="${WRITE_COST:-0}"
-          WRITE_TURNS="${{ steps.write_cost.outputs.turns }}"
           WRITE_TURNS="${WRITE_TURNS:-0}"
-          WRITE_DURATION_MS="${{ steps.write_cost.outputs.duration }}"
           WRITE_DURATION_MS="${WRITE_DURATION_MS:-0}"
           WRITE_DURATION_S=$(echo "scale=1; ${WRITE_DURATION_MS} / 1000" | bc 2>/dev/null || echo "0")
 
@@ -381,12 +407,12 @@ jobs:
 
           PR_URL=$(gh pr create \
             --draft \
-            --title "${{ github.event.client_payload.title }}" \
+            --title "${PR_TITLE}" \
             --body "## Agent-Written PR
 
           ${SOURCE_LINE}
-          **Correlation ID:** ${{ steps.validate.outputs.correlation_id }}
-          **Risk Tier:** ${{ github.event.client_payload.risk_tier }}
+          **Correlation ID:** ${CORRELATION_ID}
+          **Risk Tier:** ${RISK_TIER}
           ${CLOSES_LINE}
 
           This PR was written by AgentFactory. Review the changes carefully.
@@ -396,17 +422,34 @@ jobs:
           - [ ] No anti-patterns from CLAUDE.md
 
           ---
-          📊 **Agent Stats** (total: \$${TOTAL_COST})
+          **Agent Stats** (total: \$${TOTAL_COST})
           | Step | Model | Cost | Turns | Duration |
           |------|-------|------|-------|----------|
-          | Plan | \`${{ steps.models.outputs.plan_model }}\` | \$${PLAN_COST} | ${PLAN_TURNS} | ${PLAN_DURATION_S}s |
-          | Write | \`${{ steps.models.outputs.write_model }}\` | \$${WRITE_COST} | ${WRITE_TURNS} | ${WRITE_DURATION_S}s |" \
+          | Plan | \`${PLAN_MODEL}\` | \$${PLAN_COST} | ${PLAN_TURNS} | ${PLAN_DURATION_S}s |
+          | Write | \`${WRITE_MODEL}\` | \$${WRITE_COST} | ${WRITE_TURNS} | ${WRITE_DURATION_S}s |" \
             --base main \
-            --head "${{ steps.branch.outputs.branch }}" \
+            --head "${BRANCH}" \
             2>&1)
 
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "Created PR: $PR_URL"
+
+      # ── Notify on success ──────────────────────────────────────────────────
+      - name: Comment on issue (PR created)
+        if: steps.create_pr.outcome == 'success' && github.event.client_payload.source == 'github-issue'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
+          PR_URL: ${{ steps.create_pr.outputs.pr_url }}
+        run: |
+          if [ -n "${ISSUE_NUMBER}" ] && [ -n "${PR_URL}" ]; then
+            gh issue comment "${ISSUE_NUMBER}" \
+              --repo "${{ github.repository }}" \
+              --body "🚀 **LailaTov** opened a draft PR: ${PR_URL}
+
+          Please review the changes. The PR will go through automated code review and testing next." \
+              2>/dev/null || echo "::warning::Failed to post success comment on issue"
+          fi
 
       # ── Callback to orchestrator ───────────────────────────────────────────
       # Always runs — even if prior steps failed — so orchestrator is never
@@ -437,4 +480,45 @@ jobs:
           else
             echo "No ORCHESTRATOR_URL configured — skipping callback"
             echo "Status: ${STATUS}, PR: ${PR_URL}"
+          fi
+
+      # ── Notify on failure ─────────────────────────────────────────────────
+      # Post a comment on the originating GitHub issue so the user knows.
+      - name: Comment on issue (failure)
+        if: failure() && github.event.client_payload.source == 'github-issue'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
+        run: |
+          if [ -n "${ISSUE_NUMBER}" ]; then
+            RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            gh issue comment "${ISSUE_NUMBER}" \
+              --repo "${{ github.repository }}" \
+              --body "❌ **LailaTov** was unable to complete this task.
+
+          The agent ran but did not produce viable code changes. This can happen when:
+          - The task description needs more detail
+          - The codebase structure is complex and needs orientation hints
+          - There was a transient API error
+
+          [View workflow run](${RUN_URL})
+
+          _You can re-trigger by adding the \`ai-agent\` label, or provide more context in a comment._" \
+              2>/dev/null || echo "::warning::Failed to post failure comment on issue"
+          fi
+
+      # ── Update web dashboard on failure ────────────────────────────────────
+      - name: Update web dashboard (failure)
+        if: failure()
+        env:
+          WEB_URL: ${{ vars.WEB_URL || 'https://lailatov.vercel.app' }}
+          CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
+          ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
+        run: |
+          if [ -n "${ISSUE_NUMBER}" ] && [ -n "${CALLBACK_SECRET}" ]; then
+            curl -s -X POST "${WEB_URL}/api/tasks/from-issue/status" \
+              -H "Content-Type: application/json" \
+              -H "X-Callback-Secret: ${CALLBACK_SECRET}" \
+              -d "{\"issueNumber\": ${ISSUE_NUMBER}, \"status\": \"failed\", \"runId\": \"${{ github.run_id }}\"}" \
+              2>/dev/null || echo "::warning::Failed to update web dashboard status"
           fi
